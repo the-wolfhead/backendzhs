@@ -1,77 +1,130 @@
-import express from 'express';
-import { PrismaClient } from '@prisma/client';
+import express from 'express'
+import prisma from '../config/prisma.js' // ✅ reuse singleton
+import { asyncHandler } from '../utils/asyncHandler.js'
 
-const router = express.Router();
-const prisma = new PrismaClient();
+const router = express.Router()
 
 /* ================================
-   📍 Get all doctors (optionally search)
+   📍 Get all doctors (search)
 ================================== */
-router.get('/', async (req, res) => {
-  try {
-    const { q } = req.query;
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    const { q } = req.query
+
     const doctors = await prisma.doctor.findMany({
       where: q
         ? {
             OR: [
               { name: { contains: q, mode: 'insensitive' } },
-              { specialty: { contains: q, mode: 'insensitive' } },
-              { hospital: { contains: q, mode: 'insensitive' } },
+              // ⚠️ specialty is String[] → use has/hasSome
+              { specialty: { has: q } },
             ],
           }
-        : {},
+        : undefined,
       orderBy: { createdAt: 'desc' },
-    });
+    })
 
-    res.json(doctors);
-  } catch (err) {
-    console.error('Error fetching doctors:', err);
-    res.status(500).json({ error: 'Failed to fetch doctors' });
-  }
-});
+    res.json({
+      success: true,
+      data: doctors,
+    })
+  })
+)
 
 /* ================================
-   📍 Get a single doctor by ID
+   📍 Get doctor by ID
 ================================== */
-router.get('/:id', async (req, res) => {
-  try {
+router.get(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id)
+
+    if (isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid doctor ID',
+      })
+    }
+
     const doctor = await prisma.doctor.findUnique({
-      where: { id: Number(req.params.id) },
-      include: { appointments: true },
-    });
+      where: { id },
+      include: {
+        Appointment: true, // ✅ match your schema exactly
+      },
+    })
 
-    if (!doctor) return res.status(404).json({ error: 'Doctor not found' });
-    res.json(doctor);
-  } catch (err) {
-    res.status(500).json({ error: 'Error fetching doctor' });
-  }
-});
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Doctor not found',
+      })
+    }
+
+    res.json({
+      success: true,
+      data: doctor,
+    })
+  })
+)
 
 /* ================================
-   ➕ Create new doctor
+   ➕ Create doctor
 ================================== */
-router.post('/', async (req, res) => {
-  try {
-    const { name, specialty, hospital, phone, email, bio, rating, availableHours } = req.body;
+router.post(
+  '/',
+  asyncHandler(async (req, res) => {
+    const {
+      name,
+      specialty,
+      bio,
+      rating,
+      availableHours,
+    } = req.body
+
+    // ✅ Basic validation
+    if (!name || !specialty) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name and specialty are required',
+      })
+    }
+
+    // ✅ Ensure specialty is array
+    const parsedSpecialty =
+      Array.isArray(specialty) ? specialty : [specialty]
+
+    // ✅ Safe JSON parsing
+    let parsedHours = null
+    if (availableHours) {
+      try {
+        parsedHours =
+          typeof availableHours === 'string'
+            ? JSON.parse(availableHours)
+            : availableHours
+      } catch {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid availableHours JSON',
+        })
+      }
+    }
 
     const doctor = await prisma.doctor.create({
       data: {
         name,
-        specialty,
-        hospital,
-        phone,
-        email,
-        bio,
-        rating: rating || 0.0,
-        availableHours: availableHours ? JSON.parse(availableHours) : null,
+        specialty: parsedSpecialty,
+        bio: bio || null,
+        rating: rating ?? 0,
+        availableHours: parsedHours,
       },
-    });
+    })
 
-    res.json(doctor);
-  } catch (err) {
-    console.error('Error creating doctor:', err);
-    res.status(500).json({ error: 'Failed to create doctor' });
-  }
-});
+    res.status(201).json({
+      success: true,
+      data: doctor,
+    })
+  })
+)
 
-export default router;
+export default router
