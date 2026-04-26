@@ -1,8 +1,8 @@
-import express from 'express'
-import prisma from '../config/prisma.js' // ✅ reuse singleton
-import { asyncHandler } from '../utils/asyncHandler.js'
+import express from 'express';
+import { PrismaClient } from '@prisma/client';
 
-const router = express.Router()
+const router = express.Router();
+const prisma = new PrismaClient();
 
 /* ================================
    📍 Get all doctors (search)
