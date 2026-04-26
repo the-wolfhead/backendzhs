@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import doctorRoutes from './routes/doctorRoutes.js';
+import hospitalRoutes from './routes/hospitalRoutes.js'
 import appointmentRoutes from './routes/appointmentRoutes.js';
 import searchRoutes from './routes/search.js';
 import {errorHandler} from './middleware/error.middleware.js';
@@ -18,6 +19,7 @@ app.use(express.json());
 app.use('/auth', authRoutes);
 app.use('/user', userRoutes);
 app.use('/doctors', doctorRoutes);
+app.use('/hospitals', hospitalRoutes)
 app.use('/appointments', appointmentRoutes);
 app.use('/search', searchRoutes);
 app.use(errorHandler)
