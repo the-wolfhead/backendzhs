@@ -52,7 +52,7 @@ router.get(
     const doctor = await prisma.doctor.findUnique({
       where: { id },
       include: {
-        Appointment: true, // ✅ match your schema exactly
+        appointments: true, // ✅ match your schema exactly
       },
     })
 
