@@ -6,7 +6,7 @@ import userRoutes from './routes/userRoutes.js';
 import doctorRoutes from './routes/doctorRoutes.js';
 import appointmentRoutes from './routes/appointmentRoutes.js';
 import searchRoutes from './routes/search.js';
-import errorHandler from './middleware/error.middleware.js';
+import {errorHandler} from './middleware/error.middleware.js';
 
 
 dotenv.config();
