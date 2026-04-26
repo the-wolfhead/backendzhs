@@ -124,6 +124,7 @@ model Hospital {
   address   String
   phone     String?
   email     String?
+  specialty String[]
   createdAt DateTime @default(now())
 }
 
