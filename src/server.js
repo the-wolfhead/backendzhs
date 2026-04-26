@@ -6,6 +6,7 @@ import userRoutes from './routes/userRoutes.js';
 import doctorRoutes from './routes/doctorRoutes.js';
 import appointmentRoutes from './routes/appointmentRoutes.js';
 import searchRoutes from './routes/search.js';
+import errorHandler from './middleware/error.middleware.js';
 
 
 dotenv.config();
@@ -19,6 +20,7 @@ app.use('/user', userRoutes);
 app.use('/doctors', doctorRoutes);
 app.use('/appointments', appointmentRoutes);
 app.use('/search', searchRoutes);
+app.use(errorHandler)
 
 app.get('/', (req, res) => res.send('Backend running 🚀'));
 
