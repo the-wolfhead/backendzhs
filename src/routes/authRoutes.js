@@ -82,6 +82,7 @@ router.get('/me', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log('📥 Login request body:', req.body);
 
     if (!email || !password)
       return res.status(400).json({ error: 'Missing credentials' });
