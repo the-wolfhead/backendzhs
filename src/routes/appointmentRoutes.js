@@ -4,6 +4,15 @@ import { PrismaClient } from '@prisma/client';
 const router = express.Router();
 const prisma = new PrismaClient();
 
+import { createAppointment } from '../appointments/create.js';
+import { internalAuthMiddleware } from '../middleware/internalAuth.js';
+
+// Protected Internal Route (used by paymentgatewaybackend)
+router.post('/create-from-payment', 
+  internalAuthMiddleware,           // ← Secure it
+  createAppointment
+);
+
 /* ================================
    📍 Get all appointments
 ================================== */
