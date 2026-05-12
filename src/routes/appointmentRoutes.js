@@ -8,7 +8,7 @@ import { createAppointment } from '../appointments/create.js';
 import { internalAuthMiddleware } from '../middleware/internalAuth.js';
 
 // Protected Internal Route (used by paymentgatewaybackend)
-router.post('/create-from-payment', 
+router.post('/create', 
   internalAuthMiddleware,           // ← Secure it
   createAppointment
 );
