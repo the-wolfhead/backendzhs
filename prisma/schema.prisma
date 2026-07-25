@@ -112,9 +112,18 @@ model Appointment {
   date DateTime
   time String
 
-  videoCallUrl String
-  status       String @default("pending")
+  patientName      String   @default("Self")
+  amount           Float?
+  paymentReference String?  @unique
+  paymentStatus    String   @default("PENDING")
+  source           String   @default("DIRECT")
+  metadata         Json?
 
+  videoCallUrl  String
+  callStartedAt DateTime?
+  callEndedAt   DateTime?
+
+  status    String   @default("pending")
   createdAt DateTime @default(now())
 }
 

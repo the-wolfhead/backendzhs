@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../prismaClient.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
+import { hashPassword } from '../utils/hash.js';
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ router.get('/me', authenticateToken, async (req, res) => {
         id: true,
         name: true,
         email: true,
-        photoUrl: true,
+        picture: true,
         bloodGroup: true,
         genotype: true,
         medicalHistory: true,
@@ -47,12 +48,12 @@ router.get('/me', authenticateToken, async (req, res) => {
  * @access  Private
  */
 router.put('/update', authenticateToken, async (req, res) => {
-  const { name, photoUrl } = req.body;
+  const { name, picture } = req.body;
 
   try {
     const updatedUser = await prisma.user.update({
       where: { id: req.user.id },
-      data: { name, photoUrl },
+      data: { name, picture },
     });
 
     res.json({ message: 'Profile updated successfully', user: updatedUser });
@@ -136,7 +137,7 @@ router.get('/home-data', async (req, res) => {
   try {
     const doctors = await prisma.doctor.findMany();
     const hospitals = await prisma.hospital.findMany();
-    const labs = await prisma.laboratory.findMany();
+    const labs = await prisma.lab.findMany();
     const pharmacies = await prisma.pharmacy.findMany();
 
     res.json({ doctors, hospitals, labs, pharmacies });
@@ -156,7 +157,7 @@ router.put('/update-password/:id', async (req, res) => {
       return res.status(400).json({ error: 'Password is required' });
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await hashPassword(newPassword);
 
     const updatedUser = await prisma.user.update({
       where: { id },

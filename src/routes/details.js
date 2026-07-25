@@ -23,7 +23,7 @@ router.get('/hospital/:id', async (req, res) => {
 // Fetch Laboratory by ID
 router.get('/lab/:id', async (req, res) => {
   const { id } = req.params;
-  const lab = await prisma.laboratory.findUnique({ where: { id: parseInt(id) } });
+  const lab = await prisma.lab.findUnique({ where: { id: parseInt(id) } });
   if (!lab) return res.status(404).json({ message: 'Lab not found' });
   res.json(lab);
 });

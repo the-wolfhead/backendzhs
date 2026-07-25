@@ -7,6 +7,9 @@ import doctorRoutes from './routes/doctorRoutes.js';
 import hospitalRoutes from './routes/hospitalRoutes.js'
 import appointmentRoutes from './routes/appointmentRoutes.js';
 import searchRoutes from './routes/search.js';
+import walletRoutes from './routes/wallet.routes.js';
+import detailsRoutes from './routes/details.js';
+import paymentRoutes from './routes/payment.js';
 import {errorHandler} from './middleware/error.middleware.js';
 
 
@@ -22,6 +25,9 @@ app.use('/doctors', doctorRoutes);
 app.use('/hospitals', hospitalRoutes)
 app.use('/appointments', appointmentRoutes);
 app.use('/search', searchRoutes);
+app.use('/wallet', walletRoutes);
+app.use('/details', detailsRoutes);
+app.use('/payment', paymentRoutes);
 app.use(errorHandler)
 
 app.get('/', (req, res) => res.send('Backend running 🚀'));

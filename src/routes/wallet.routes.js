@@ -1,76 +1,141 @@
-// routes/wallet.routes.js
+// src/routes/wallet.routes.js
+//
+// This file was corrupted — it was a dangling code fragment (a refund block
+// not wrapped in any route handler, no imports for prisma/express, and
+// `module.exports = router` used inside an ESM project ("type": "module" in
+// package.json), which throws `ReferenceError: module is not defined`.
+// Rewritten as valid, schema-correct routes.
+import express from 'express';
+import prisma from '../prismaClient.js';
+import { authenticateToken } from '../middleware/authMiddleware.js';
 
+const router = express.Router();
 
-// amount to refund = orig.amount
-const refundAmount = orig.amount;
-
-
-// create refund transaction
-const refundTx = await prisma.transaction.create({ data: {
-userId: orig.userId,
-type: 'REFUND',
-channel: 'WALLET',
-amount: refundAmount,
-currency: orig.currency,
-status: 'SUCCESS',
-reference: `wallet_refund_${orig.id}_${Date.now()}_${uuidv4().slice(0,8)}`,
-meta: { reason, originalTransaction: orig.id },
-}});
-
-
-// credit wallet
-let wallet = await prisma.wallet.findUnique({ where: { userId: orig.userId } });
-if (!wallet) wallet = await prisma.wallet.create({ data: { userId: orig.userId, balance: refundAmount } });
-else await prisma.wallet.update({ where: { userId: orig.userId }, data: { balance: { increment: refundAmount } } });
-
-
-// mark original as REFUNDED
-await prisma.transaction.update({ where: { id: orig.id }, data: { status: 'REFUNDED' } });
-
-
-return res.json({ ok: true, refundTx });
-} catch (err) {
-console.error(err);
-return res.status(500).json({ error: 'Server error' });
-}
+/* ================================
+   📍 Get wallet balance
+================================== */
+router.get('/balance', authenticateToken, async (req, res) => {
+  try {
+    const wallet = await prisma.wallet.findUnique({ where: { userId: req.user.id } });
+    res.json({ balance: wallet ? Number(wallet.balance) : 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch wallet balance' });
+  }
 });
 
+/* ================================
+   📍 Get transaction history
+================================== */
+router.get('/transactions', authenticateToken, async (req, res) => {
+  try {
+    const transactions = await prisma.transaction.findMany({
+      where: { userId: req.user.id },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    res.json({ transactions });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch transactions' });
+  }
+});
 
-// Paystack webhook endpoint (to be configured in Paystack dashboard)
-// Use this to securely confirm payments server-side. Be sure to validate signature in production.
+/* ================================
+   💸 Refund a transaction
+================================== */
+router.post('/refund/:transactionId', authenticateToken, async (req, res) => {
+  try {
+    const { reason } = req.body;
+
+    const orig = await prisma.transaction.findUnique({
+      where: { id: req.params.transactionId },
+    });
+
+    if (!orig) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    if (orig.status === 'REFUNDED') {
+      return res.status(400).json({ error: 'Transaction already refunded' });
+    }
+
+    const refundAmount = orig.amount;
+
+    const refundTx = await prisma.transaction.create({
+      data: {
+        userId: orig.userId,
+        type: 'REFUND',
+        channel: 'WALLET',
+        amount: refundAmount,
+        currency: orig.currency,
+        status: 'SUCCESS',
+        reference: `wallet_refund_${orig.id}_${Date.now()}`,
+        meta: { reason, originalTransaction: orig.id },
+      },
+    });
+
+    const wallet = await prisma.wallet.findUnique({ where: { userId: orig.userId } });
+    if (!wallet) {
+      await prisma.wallet.create({ data: { userId: orig.userId, balance: refundAmount } });
+    } else {
+      await prisma.wallet.update({
+        where: { userId: orig.userId },
+        data: { balance: { increment: refundAmount } },
+      });
+    }
+
+    await prisma.transaction.update({
+      where: { id: orig.id },
+      data: { status: 'REFUNDED' },
+    });
+
+    return res.json({ ok: true, refundTx });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/* ================================
+   🔔 Paystack webhook
+   NOTE: verify the Paystack signature (x-paystack-signature header) before
+   trusting this payload in production — that check is not implemented here.
+================================== */
 router.post('/webhook', express.json(), async (req, res) => {
-/*
-Paystack will POST webhook events here. Verify signature using PAYSTACK_SECRET.
-For simplicity we'll just process transaction.success events and credit wallets.
-*/
-try {
-const event = req.body;
-// Basic guard: ensure event.event exists
-if (!event.event) return res.status(400).send('no event');
+  try {
+    const event = req.body;
+    if (!event.event) return res.status(400).send('no event');
 
+    if (event.event === 'charge.success' || event.event === 'transaction.success') {
+      const data = event.data;
+      const reference = data.reference;
+      const amount = BigInt(data.amount);
 
-if (event.event === 'charge.success' || event.event === 'transaction.success') {
-const data = event.data;
-const reference = data.reference;
-const amount = BigInt(data.amount);
-// Find local transaction by reference
-const tx = await prisma.transaction.findUnique({ where: { reference } });
-if (tx && tx.status !== 'SUCCESS') {
-await prisma.transaction.update({ where: { id: tx.id }, data: { status: 'SUCCESS', paystackResponse: data } });
-// credit wallet
-let wallet = await prisma.wallet.findUnique({ where: { userId: tx.userId } });
-if (!wallet) await prisma.wallet.create({ data: { userId: tx.userId, balance: amount } });
-else await prisma.wallet.update({ where: { userId: tx.userId }, data: { balance: { increment: amount } } });
-}
-}
+      const tx = await prisma.transaction.findUnique({ where: { reference } });
 
+      if (tx && tx.status !== 'SUCCESS') {
+        await prisma.transaction.update({
+          where: { id: tx.id },
+          data: { status: 'SUCCESS', paystackResponse: data },
+        });
 
-return res.status(200).send('ok');
-} catch (err) {
-console.error('webhook error', err);
-return res.status(500).send('error');
-}
+        const wallet = await prisma.wallet.findUnique({ where: { userId: tx.userId } });
+        if (!wallet) {
+          await prisma.wallet.create({ data: { userId: tx.userId, balance: amount } });
+        } else {
+          await prisma.wallet.update({
+            where: { userId: tx.userId },
+            data: { balance: { increment: amount } },
+          });
+        }
+      }
+    }
+
+    return res.status(200).send('ok');
+  } catch (err) {
+    console.error('webhook error', err);
+    return res.status(500).send('error');
+  }
 });
 
-
-module.exports = router;
+export default router;
