@@ -1,6 +1,5 @@
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -14,6 +13,7 @@ model User {
   name      String
   googleId  String?  @unique
   picture   String?
+  role      String   @default("USER") // USER | SUPER_ADMIN | TECH_SUPPORT | CUSTOMER_CARE | FINANCE | AUDITOR
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   wallet Wallet?

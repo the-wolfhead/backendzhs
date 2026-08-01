@@ -11,7 +11,7 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // 🔐 Utility to issue JWT tokens
 const generateToken = (user) =>
-  jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  jwt.sign({ id: user.id, role: user.role || 'USER' }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
 /* ---------------------------------------------
    🧾 EMAIL SIGNUP
