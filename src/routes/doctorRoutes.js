@@ -1,6 +1,8 @@
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
 import { asyncHandler } from '../utils/asyncHandler.js'
+import { authenticateToken } from '../middleware/authMiddleware.js';
+import { requireRole } from '../middleware/roleMiddleware.js';
 
 
 const router = express.Router();
@@ -75,6 +77,8 @@ router.get(
 ================================== */
 router.post(
   '/',
+  authenticateToken,
+  requireRole('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const {
       name,

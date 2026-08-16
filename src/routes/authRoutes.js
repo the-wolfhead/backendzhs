@@ -47,7 +47,8 @@ router.post('/signup', async (req, res) => {
 
     console.log('✅ Token generated successfully');
 
-    res.json({ user, token });
+    const { password: _pw, ...safeUser } = user;
+    res.json({ user: safeUser, token });
   } catch (err) {
     console.error('🔥 Signup Error:', err);
     res.status(500).json({
@@ -97,7 +98,8 @@ router.post('/login', async (req, res) => {
     if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
 
     const token = generateToken(user);
-    res.json({ user, token });
+    const { password: _pw, ...safeUser } = user;
+    res.json({ user: safeUser, token });
   } catch (err) {
     console.error('Login Error:', err);
     res.status(500).json({ error: 'Login failed' });

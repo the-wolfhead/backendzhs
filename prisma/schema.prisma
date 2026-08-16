@@ -13,7 +13,7 @@ model User {
   name      String
   googleId  String?  @unique
   picture   String?
-  role      String   @default("USER") // USER | SUPER_ADMIN | TECH_SUPPORT | CUSTOMER_CARE | FINANCE | AUDITOR
+  role      String   @default("USER") // USER | DOCTOR | SUPER_ADMIN | TECH_SUPPORT | CUSTOMER_CARE | FINANCE | AUDITOR
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   wallet Wallet?
@@ -33,6 +33,7 @@ model User {
   // 🔗 Relations
   appointments    Appointment[]
   favoriteDoctors FavoriteDoctor[]
+  doctorProfile   Doctor?
 }
 
 enum TransactionType {
@@ -93,8 +94,16 @@ model Doctor {
   rating         Float?   @default(0)
   bio            String?
   availableHours Json?
+  workDays       String[]
+  isOnline       Boolean  @default(false)
   fee            Int      @default(3000)
   createdAt      DateTime @default(now())
+
+  // Links this practice profile to a login identity (User with role=DOCTOR).
+  // Optional because a Doctor row can exist in the directory before the
+  // doctor has been onboarded with actual login credentials.
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id])
 
   // 🔗 Relations
   appointments Appointment[]

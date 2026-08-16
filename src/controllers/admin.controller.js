@@ -1,6 +1,8 @@
 // src/controllers/admin.controller.js
+import crypto from 'crypto';
 import prisma from '../prismaClient.js';
 import { buildVideoCallUrl } from '../utils/videoCall.js';
+import { hashPassword } from '../utils/hash.js';
 
 /* ================================
    📊 Dashboard stats
@@ -78,7 +80,7 @@ export const listUsers = async (req, res) => {
 export const updateUserRole = async (req, res) => {
   try {
     const { role } = req.body;
-    const validRoles = ['USER', 'SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'];
+    const validRoles = ['USER', 'DOCTOR', 'SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'];
 
     if (!validRoles.includes(role)) {
       return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
@@ -208,9 +210,50 @@ export const listDoctorsAdmin = async (req, res) => {
 
 export const createDoctor = async (req, res) => {
   try {
-    const { name, specialty, rating, bio, fee, availableHours } = req.body;
+    const { name, specialty, rating, bio, fee, availableHours, email } = req.body;
 
     if (!name) return res.status(400).json({ error: 'name is required' });
+
+    // If an email is given, provision real login credentials alongside the
+    // directory entry (a Doctor row with no linked User can't log into
+    // anything — it's directory-only). A random temp password is generated
+    // and returned once so the admin can share it with the doctor; there's
+    // no way to retrieve it again after this response.
+    if (email) {
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing) {
+        return res.status(409).json({ error: 'A user with this email already exists' });
+      }
+
+      const tempPassword = crypto.randomBytes(6).toString('base64url'); // e.g. "k3F9pQm2"
+      const hashed = await hashPassword(tempPassword);
+
+      const result = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: { name, email, password: hashed, role: 'DOCTOR' },
+        });
+
+        const doctor = await tx.doctor.create({
+          data: {
+            name,
+            specialty: Array.isArray(specialty) ? specialty : (specialty ? [specialty] : []),
+            rating: rating ?? 0,
+            bio,
+            fee: fee ?? 3000,
+            availableHours,
+            userId: user.id,
+          },
+        });
+
+        return { user, doctor };
+      });
+
+      return res.status(201).json({
+        ...result.doctor,
+        loginEmail: email,
+        tempPassword, // shown once — not retrievable after this response
+      });
+    }
 
     const doctor = await prisma.doctor.create({
       data: {
