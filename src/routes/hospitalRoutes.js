@@ -1,10 +1,9 @@
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../prismaClient.js';
 import { asyncHandler } from '../utils/asyncHandler.js'
 
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 /* ================================
    📍 Get all hospitals

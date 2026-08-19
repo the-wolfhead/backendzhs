@@ -1,12 +1,11 @@
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../prismaClient.js';
 import { asyncHandler } from '../utils/asyncHandler.js'
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { requireRole } from '../middleware/roleMiddleware.js';
 
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 /* ================================
    📍 Get all doctors (search)

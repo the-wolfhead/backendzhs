@@ -1,7 +1,6 @@
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../prismaClient.js';
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
 // 🔍 Search or list all

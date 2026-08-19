@@ -1,8 +1,7 @@
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../prismaClient.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 import { createAppointment } from '../appointments/create.js';
 import { internalAuthMiddleware } from '../middleware/internalAuth.js';
