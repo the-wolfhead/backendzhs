@@ -10,7 +10,7 @@ export const getMyProfile = async (req, res) => {
 
 export const updateMyProfile = async (req, res) => {
   try {
-    const { bio, fee, specialty, availableHours, workDays } = req.body;
+    const { bio, fee, specialty, availableHours, workDays, picture } = req.body;
 
     const doctor = await prisma.doctor.update({
       where: { id: req.doctor.id },
@@ -24,6 +24,7 @@ export const updateMyProfile = async (req, res) => {
         ...(workDays !== undefined
           ? { workDays: Array.isArray(workDays) ? workDays : [workDays] }
           : {}),
+        ...(picture !== undefined ? { picture } : {}),
       },
     });
 

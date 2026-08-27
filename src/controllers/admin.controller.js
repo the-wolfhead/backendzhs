@@ -275,7 +275,7 @@ export const createDoctor = async (req, res) => {
 
 export const updateDoctor = async (req, res) => {
   try {
-    const { name, specialty, rating, bio, fee, availableHours } = req.body;
+    const { name, specialty, rating, bio, fee, availableHours, picture } = req.body;
 
     const doctor = await prisma.doctor.update({
       where: { id: Number(req.params.id) },
@@ -286,6 +286,7 @@ export const updateDoctor = async (req, res) => {
         ...(bio !== undefined ? { bio } : {}),
         ...(fee !== undefined ? { fee } : {}),
         ...(availableHours !== undefined ? { availableHours } : {}),
+        ...(picture !== undefined ? { picture } : {}),
       },
     });
 

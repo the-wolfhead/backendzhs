@@ -1,7 +1,13 @@
 import express from 'express';
 import prisma from '../prismaClient.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
-import { hashPassword } from '../utils/hash.js';
+import { hashPassword, comparePassword } from '../utils/hash.js';
+
+const safeUser = (user) => {
+  if (!user) return user;
+  const { password, ...rest } = user;
+  return rest;
+};
 
 const router = express.Router();
 
@@ -56,7 +62,7 @@ router.put('/update', authenticateToken, async (req, res) => {
       data: { name, picture },
     });
 
-    res.json({ message: 'Profile updated successfully', user: updatedUser });
+    res.json({ message: 'Profile updated successfully', user: safeUser(updatedUser) });
   } catch (error) {
     console.error('Profile update error:', error);
     res.status(500).json({ error: 'Failed to update profile' });
@@ -121,10 +127,45 @@ router.put('/medical', authenticateToken, async (req, res) => {
       },
     });
 
-    res.json({ message: 'Medical data updated successfully', user: updatedUser });
+    res.json({ message: 'Medical data updated successfully', user: safeUser(updatedUser) });
   } catch (error) {
     console.error('Update medical data error:', error);
     res.status(500).json({ error: 'Failed to update medical data' });
+  }
+});
+
+/**
+ * @route   GET /user/lookup?email=
+ * @desc    Look up another user by email — used to confirm a wallet
+ *          transfer recipient exists before sending money. Deliberately
+ *          returns only { id, name }, never email/medical/other fields.
+ * @access  Private
+ */
+router.get('/lookup', authenticateToken, async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ error: 'email query param is required' });
+  }
+
+  if (email.toLowerCase() === req.user.email.toLowerCase()) {
+    return res.status(400).json({ error: "That's your own account" });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, name: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'No user found with that email' });
+    }
+
+    res.json({ user });
+  } catch (error) {
+    console.error('User lookup error:', error);
+    res.status(500).json({ error: 'Lookup failed' });
   }
 });
 
@@ -147,24 +188,37 @@ router.get('/home-data', async (req, res) => {
   }
 });
 
-// PUT /user/update-password/:id
-router.put('/update-password/:id', async (req, res) => {
-  const { id } = req.params;
-  const { newPassword } = req.body;
+// PUT /user/update-password
+router.put('/update-password', authenticateToken, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
 
   try {
-    if (!newPassword) {
-      return res.status(400).json({ error: 'Password is required' });
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'currentPassword and newPassword are required' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user?.password) {
+      return res.status(400).json({ error: 'This account has no password set (e.g. Google sign-in) — nothing to change' });
+    }
+
+    const isValid = await comparePassword(currentPassword, user.password);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
     const hashedPassword = await hashPassword(newPassword);
 
     const updatedUser = await prisma.user.update({
-      where: { id },
+      where: { id: req.user.id },
       data: { password: hashedPassword },
     });
 
-    res.json({ message: 'Password updated successfully', user: updatedUser });
+    const { password: _pw, ...safeUser } = updatedUser;
+    res.json({ message: 'Password updated successfully', user: safeUser });
   } catch (err) {
     console.error('Error updating password:', err);
     res.status(500).json({ error: 'Server error while updating password' });

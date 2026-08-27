@@ -34,6 +34,20 @@ model User {
   appointments    Appointment[]
   favoriteDoctors FavoriteDoctor[]
   doctorProfile   Doctor?
+  dependents      Dependent[]
+}
+
+model Dependent {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  relationship String    // e.g. "Spouse", "Child", "Parent"
+  dateOfBirth  DateTime?
+  bloodGroup   String?
+  genotype     String?
+  allergies    String?
+  createdAt    DateTime  @default(now())
 }
 
 enum TransactionType {
@@ -93,6 +107,7 @@ model Doctor {
   specialty      String[]
   rating         Float?   @default(0)
   bio            String?
+  picture        String?
   availableHours Json?
   workDays       String[]
   isOnline       Boolean  @default(false)

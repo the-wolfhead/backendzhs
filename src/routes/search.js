@@ -3,52 +3,26 @@ import prisma from '../prismaClient.js';
 
 const router = express.Router();
 
+// 🔍 Search or list all
 router.get('/', async (req, res) => {
-  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const { q } = req.query;
 
   try {
+    const filter = q
+      ? { where: { name: { contains: q, mode: 'insensitive' } } }
+      : {};
+
     const [doctors, hospitals, labs, pharmacies] = await Promise.all([
-      prisma.doctor.findMany({
-        where: q ? {
-          OR: [
-            { name: { contains: q, mode: 'insensitive' } },
-            { specialty: { has: q } },
-          ],
-        } : undefined,
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.hospital.findMany({
-        where: q ? {
-          OR: [
-            { name: { contains: q, mode: 'insensitive' } },
-            { address: { contains: q, mode: 'insensitive' } },
-          ],
-        } : undefined,
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.lab.findMany({
-        where: q ? {
-          OR: [
-            { name: { contains: q, mode: 'insensitive' } },
-            { services: { contains: q, mode: 'insensitive' } },
-            { address: { contains: q, mode: 'insensitive' } },
-          ],
-        } : undefined,
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.pharmacy.findMany({
-        where: q ? { name: { contains: q, mode: 'insensitive' } } : undefined,
-        orderBy: { createdAt: 'desc' },
-      }),
+      prisma.doctor.findMany(filter),
+      prisma.hospital.findMany(filter),
+      prisma.lab.findMany(filter),
+      prisma.pharmacy.findMany(filter),
     ]);
 
-    res.json({
-      success: true,
-      data: { doctors, hospitals, labs, pharmacies },
-    });
+    res.json({ doctors, hospitals, labs, pharmacies });
   } catch (error) {
     console.error('Search error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ message: 'Server error', error });
   }
 });
 

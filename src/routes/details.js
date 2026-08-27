@@ -3,24 +3,36 @@ import prisma from '../prismaClient.js';
 
 const router = express.Router();
 
-const getId = (value) => {
-  const id = Number(value);
-  return Number.isInteger(id) && id > 0 ? id : null;
-};
+// Fetch Doctor by ID
+router.get('/doctor/:id', async (req, res) => {
+  const { id } = req.params;
+  const doctor = await prisma.doctor.findUnique({ where: { id: parseInt(id) } });
+  if (!doctor) return res.status(404).json({ message: 'Doctor not found' });
+  res.json(doctor);
+});
 
-const findById = (model, label) => async (req, res) => {
-  const id = getId(req.params.id);
-  if (!id) return res.status(400).json({ success: false, message: `Invalid ${label} ID` });
+// Fetch Hospital by ID
+router.get('/hospital/:id', async (req, res) => {
+  const { id } = req.params;
+  const hospital = await prisma.hospital.findUnique({ where: { id: parseInt(id) } });
+  if (!hospital) return res.status(404).json({ message: 'Hospital not found' });
+  res.json(hospital);
+});
 
-  const item = await prisma[model].findUnique({ where: { id } });
-  if (!item) return res.status(404).json({ success: false, message: `${label} not found` });
+// Fetch Laboratory by ID
+router.get('/lab/:id', async (req, res) => {
+  const { id } = req.params;
+  const lab = await prisma.lab.findUnique({ where: { id: parseInt(id) } });
+  if (!lab) return res.status(404).json({ message: 'Lab not found' });
+  res.json(lab);
+});
 
-  res.json({ success: true, data: item });
-};
-
-router.get('/doctor/:id', findById('doctor', 'Doctor'));
-router.get('/hospital/:id', findById('hospital', 'Hospital'));
-router.get('/lab/:id', findById('lab', 'Lab'));
-router.get('/pharmacy/:id', findById('pharmacy', 'Pharmacy'));
+// Fetch Pharmacy by ID
+router.get('/pharmacy/:id', async (req, res) => {
+  const { id } = req.params;
+  const pharmacy = await prisma.pharmacy.findUnique({ where: { id: parseInt(id) } });
+  if (!pharmacy) return res.status(404).json({ message: 'Pharmacy not found' });
+  res.json(pharmacy);
+});
 
 export default router;
