@@ -71,7 +71,7 @@ router.get(
 router.post(
   '/',
   asyncHandler(async (req, res) => {
-    const { name, address, phone, email } = req.body
+    const { name, address, phone, email, fee, specialty, availableHours, workDays } = req.body
 
     // ✅ Validation
     if (!name || !address) {
@@ -87,6 +87,10 @@ router.post(
         address,
         phone: phone || null,
         email: email || null,
+        fee: fee != null ? Number(fee) : 5000,
+        specialty: specialty || [],
+        availableHours: availableHours || undefined,
+        workDays: workDays || [],
       },
     })
 
@@ -112,7 +116,7 @@ router.put(
       })
     }
 
-    const { name, address, phone, email } = req.body
+    const { name, address, phone, email, fee, specialty, availableHours, workDays } = req.body
 
     const existing = await prisma.hospital.findUnique({
       where: { id },
@@ -132,6 +136,10 @@ router.put(
         address: address ?? existing.address,
         phone: phone ?? existing.phone,
         email: email ?? existing.email,
+        fee: fee != null ? Number(fee) : existing.fee,
+        specialty: specialty ?? existing.specialty,
+        availableHours: availableHours !== undefined ? availableHours : existing.availableHours,
+        workDays: workDays ?? existing.workDays,
       },
     })
 

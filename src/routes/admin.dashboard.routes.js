@@ -9,6 +9,7 @@ import { requireRole, ANY_STAFF } from '../middleware/roleMiddleware.js';
 import {
   getStats,
   listUsers,
+  getUserDetail,
   updateUserRole,
   listAppointments,
   updateAppointment,
@@ -29,6 +30,7 @@ router.use(authenticateToken, requireRole(...ANY_STAFF));
 router.get('/stats', getStats);
 
 router.get('/users', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listUsers);
+router.get('/users/:id', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), getUserDetail);
 router.patch('/users/:id/role', requireRole('SUPER_ADMIN'), updateUserRole);
 
 router.get('/appointments', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listAppointments);

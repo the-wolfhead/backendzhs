@@ -77,6 +77,39 @@ export const listUsers = async (req, res) => {
   }
 };
 
+/**
+ * @route   GET /admin/dashboard/users/:id
+ * @desc    Full read-only view of a user — profile, medical data,
+ *          dependents, and recent appointments. Never returns the password
+ *          hash. This is view-only: nothing here lets an admin edit medical
+ *          data or dependents, only see them (role changes stay in
+ *          updateUserRole below, and appointment edits stay in the
+ *          appointments endpoints).
+ */
+export const getUserDetail = async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      include: {
+        dependents: { orderBy: { createdAt: 'asc' } },
+        appointments: {
+          include: { doctor: { select: { id: true, name: true, specialty: true } } },
+          orderBy: { date: 'desc' },
+          take: 20,
+        },
+      },
+    });
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const { password, ...safeUser } = user;
+    res.json(safeUser);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch user detail' });
+  }
+};
+
 export const updateUserRole = async (req, res) => {
   try {
     const { role } = req.body;

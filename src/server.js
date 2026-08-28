@@ -5,6 +5,7 @@ import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import doctorRoutes from './routes/doctorRoutes.js';
 import hospitalRoutes from './routes/hospitalRoutes.js'
+import labRoutes from './routes/labRoutes.js'
 import appointmentRoutes from './routes/appointmentRoutes.js';
 import searchRoutes from './routes/search.js';
 import walletRoutes from './routes/wallet.routes.js';
@@ -27,6 +28,7 @@ app.use('/auth', authRoutes);
 app.use('/user', userRoutes);
 app.use('/doctors', doctorRoutes);
 app.use('/hospitals', hospitalRoutes)
+app.use('/labs', labRoutes)
 app.use('/appointments', appointmentRoutes);
 app.use('/search', searchRoutes);
 app.use('/wallet', walletRoutes);

@@ -90,7 +90,18 @@ router.get('/medical', authenticateToken, async (req, res) => {
     });
 
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ medicalData: user });
+
+    // Schema stores these as String[], but the mobile app's medical-profile
+    // screen is a single free-text field per concept — join to a
+    // comma-separated string for display. PUT /medical already splits back
+    // into an array on save, so this keeps the round-trip consistent.
+    res.json({
+      medicalData: {
+        ...user,
+        allergies: Array.isArray(user.allergies) ? user.allergies.join(', ') : user.allergies,
+        medicalHistory: Array.isArray(user.medicalHistory) ? user.medicalHistory.join(', ') : user.medicalHistory,
+      },
+    });
   } catch (error) {
     console.error('Fetch medical data error:', error);
     res.status(500).json({ error: 'Failed to fetch medical data' });
@@ -114,16 +125,30 @@ router.put('/medical', authenticateToken, async (req, res) => {
       drugUse,
     } = req.body;
 
+    // Both fields are String[] in the schema. Accept either a real array or
+    // a comma-separated string from the client and normalize to an array —
+    // previously this passed a plain string straight to Prisma, which threw
+    // a validation error on every save that included either field.
+    const toArray = (value) => {
+      if (value === undefined) return undefined;
+      if (value === null) return [];
+      if (Array.isArray(value)) return value.filter((v) => String(v).trim() !== '');
+      return String(value)
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+    };
+
     const updatedUser = await prisma.user.update({
       where: { id: req.user.id },
       data: {
-        bloodGroup,
-        genotype,
-        medicalHistory,
-        allergies,
-        smoker,
-        alcoholUse,
-        drugUse,
+        ...(bloodGroup !== undefined ? { bloodGroup } : {}),
+        ...(genotype !== undefined ? { genotype } : {}),
+        ...(medicalHistory !== undefined ? { medicalHistory: toArray(medicalHistory) } : {}),
+        ...(allergies !== undefined ? { allergies: toArray(allergies) } : {}),
+        ...(smoker !== undefined ? { smoker } : {}),
+        ...(alcoholUse !== undefined ? { alcoholUse } : {}),
+        ...(drugUse !== undefined ? { drugUse } : {}),
       },
     });
 
