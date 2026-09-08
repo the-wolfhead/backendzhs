@@ -21,7 +21,7 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     const appointments = await prisma.appointment.findMany({
       where: { userId: req.user.id },
-      include: { doctor: true, hospital: true, lab: true },
+      include: { Doctor: true, Hospital: true, Lab: true },
       orderBy: { date: 'asc' },
     });
     res.json(appointments);
@@ -60,10 +60,10 @@ router.get('/:id', async (req, res) => {
     const appointment = await prisma.appointment.findUnique({
       where: { id },
       include: {
-        doctor: true,
-        hospital: true,
-        lab: true,
-        user: { select: { id: true, name: true, email: true } },
+        Doctor: true,
+        Hospital: true,
+        Lab: true,
+        User: { select: { id: true, name: true, email: true } },
       },
     });
 
@@ -90,7 +90,7 @@ router.get('/:id/video-call', authenticateToken, async (req, res) => {
 
     const appointment = await prisma.appointment.findUnique({
       where: { id },
-      include: { doctor: true },
+      include: { Doctor: true },
     });
 
     if (!appointment) {
@@ -110,7 +110,7 @@ router.get('/:id/video-call', authenticateToken, async (req, res) => {
     res.json({
       appointmentId: appointment.id,
       videoCallUrl: appointment.videoCallUrl,
-      doctorName: appointment.doctor?.name,
+      doctorName: appointment.Doctor?.name,
       patientName: appointment.patientName,
       status: appointment.status,
       date: appointment.date,
@@ -222,12 +222,12 @@ router.post('/', authenticateToken, async (req, res) => {
       updated = await prisma.appointment.update({
         where: { id: appointment.id },
         data: { videoCallUrl: buildVideoCallUrl(appointment.id) },
-        include: { doctor: true, hospital: true, lab: true },
+        include: { Doctor: true, Hospital: true, Lab: true },
       });
     } else {
       updated = await prisma.appointment.findUnique({
         where: { id: appointment.id },
-        include: { doctor: true, hospital: true, lab: true },
+        include: { Doctor: true, Hospital: true, Lab: true },
       });
     }
 
@@ -245,7 +245,7 @@ router.get('/hospital/:hospitalId', async (req, res) => {
   try {
     const appointments = await prisma.appointment.findMany({
       where: { hospitalId: Number(req.params.hospitalId) },
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: { User: { select: { id: true, name: true, email: true } } },
       orderBy: { date: 'asc' },
     });
     res.json(appointments);
@@ -261,7 +261,7 @@ router.get('/lab/:labId', async (req, res) => {
   try {
     const appointments = await prisma.appointment.findMany({
       where: { labId: Number(req.params.labId) },
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: { User: { select: { id: true, name: true, email: true } } },
       orderBy: { date: 'asc' },
     });
     res.json(appointments);

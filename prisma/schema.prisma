@@ -1,201 +1,94 @@
-datasource db {
-  provider = "postgresql"
-}
-
 generator client {
   provider = "prisma-client-js"
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String?
-  name      String
-  googleId  String?  @unique
-  picture   String?
-  role      String   @default("USER") // USER | DOCTOR | SUPER_ADMIN | TECH_SUPPORT | CUSTOMER_CARE | FINANCE | AUDITOR
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  wallet Wallet?
-  transactions Transaction[]
-
-  // 🩺 Medical Information
-  bloodGroup     String?
-  genotype       String?
-  medicalHistory String[]
-  allergies      String[]
-
-  // 🧬 Lifestyle
-  smoker     Boolean? @default(false)
-  alcoholUse String?
-  drugUse    Boolean? @default(false)
-
-  // 🔗 Relations
-  appointments    Appointment[]
-  favoriteDoctors FavoriteDoctor[]
-  doctorProfile   Doctor?
-  dependents      Dependent[]
-}
-
-model Dependent {
-  id           String    @id @default(cuid())
-  userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name         String
-  relationship String    // e.g. "Spouse", "Child", "Parent"
-  dateOfBirth  DateTime?
-  bloodGroup   String?
-  genotype     String?
-  allergies    String?
-  createdAt    DateTime  @default(now())
-}
-
-enum TransactionType {
-TOPUP
-PAYMENT
-REFUND
-}
-
-
-enum TransactionChannel {
-CARD
-BANK_TRANSFER
-USSD
-WALLET
-}
-
-
-enum TransactionStatus {
-PENDING
-SUCCESS
-FAILED
-REFUNDED
-}
-
-
-
-model Wallet {
-id String @id @default(cuid())
-user User @relation(fields: [userId], references: [id])
-userId String @unique
-balance BigInt @default(0) // store in kobo (subunits)
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
-}
-
-
-model Transaction {
-id String @id @default(cuid())
-user User @relation(fields: [userId], references: [id])
-userId String
-type TransactionType
-channel TransactionChannel
-amount BigInt // stored in kobo
-currency String @default("NGN")
-status TransactionStatus @default(PENDING)
-reference String? @unique
-paystackResponse Json?
-meta Json?
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
-}
-
-
-model Doctor {
-  id             Int      @id @default(autoincrement())
-  name           String
-  specialty      String[]
-  rating         Float?   @default(0)
-  bio            String?
-  picture        String?
-  availableHours Json?
-  workDays       String[]
-  isOnline       Boolean  @default(false)
-  fee            Int      @default(3000)
-  createdAt      DateTime @default(now())
-
-  // Links this practice profile to a login identity (User with role=DOCTOR).
-  // Optional because a Doctor row can exist in the directory before the
-  // doctor has been onboarded with actual login credentials.
-  userId String? @unique
-  user   User?   @relation(fields: [userId], references: [id])
-
-  // 🔗 Relations
-  appointments Appointment[]
-  favoritedBy  FavoriteDoctor[]
+datasource db {
+  provider = "postgresql"
 }
 
 model Appointment {
-  id       Int    @id @default(autoincrement())
-
+  id               Int       @id @default(autoincrement())
   // One of doctor / hospital / lab is set depending on type
-  doctor     Doctor?   @relation(fields: [doctorId], references: [id])
-  doctorId   Int?
-
-  hospital   Hospital? @relation(fields: [hospitalId], references: [id])
-  hospitalId Int?
-
-  lab        Lab?      @relation(fields: [labId], references: [id])
-  labId      Int?
-
+  doctorId         Int?
+  hospitalId       Int?
+  labId            Int?
   // DOCTOR | HOSPITAL | LAB
-  type String @default("DOCTOR")
-
-  // For lab: which test/service; for hospital: reason/clinic
-  service String?
-
-  user   User   @relation(fields: [userId], references: [id])
-  userId String
-
-  date DateTime
-  time String
-
-  patientName      String   @default("Self")
+  type             String    @default("DOCTOR")
+  // Lab test name or hospital clinic/reason
+  service          String?
+  userId           String
+  date             DateTime
+  time             String
+  // Only required for doctor (video) appointments
+  videoCallUrl     String?
+  status           String    @default("pending")
+  createdAt        DateTime  @default(now())
   amount           Float?
-  paymentReference String?  @unique
-  paymentStatus    String   @default("PENDING")
-  source           String   @default("DIRECT")
+  callEndedAt      DateTime?
+  callStartedAt    DateTime?
   metadata         Json?
+  patientName      String    @default("Self")
+  paymentReference String?   @unique
+  paymentStatus    String    @default("PENDING")
+  source           String    @default("DIRECT")
+  Doctor           Doctor?   @relation(fields: [doctorId], references: [id])
+  Hospital         Hospital? @relation(fields: [hospitalId], references: [id])
+  Lab              Lab?      @relation(fields: [labId], references: [id])
+  User             User      @relation(fields: [userId], references: [id])
+}
 
-  // Only relevant for doctor (video) appointments; optional for hospital/lab
-  videoCallUrl  String?
-  callStartedAt DateTime?
-  callEndedAt   DateTime?
+model Doctor {
+  id             Int              @id @default(autoincrement())
+  name           String
+  createdAt      DateTime         @default(now())
+  availableHours Json?
+  bio            String?
+  picture        String?
+  fee            Int              @default(3000)
+  rating         Float?           @default(0)
+  specialty      String[]
+  isOnline       Boolean          @default(false)
+  userId         String?          @unique
+  workDays       String[]
+  Appointment    Appointment[]
+  User           User?            @relation(fields: [userId], references: [id])
+  FavoriteDoctor FavoriteDoctor[]
+}
 
-  status    String   @default("pending")
-  createdAt DateTime @default(now())
+model FavoriteDoctor {
+  id       Int    @id @default(autoincrement())
+  userId   String
+  doctorId Int
+  Doctor   Doctor @relation(fields: [doctorId], references: [id])
+  User     User   @relation(fields: [userId], references: [id])
 }
 
 model Hospital {
-  id           Int      @id @default(autoincrement())
-  name         String
-  address      String
-  phone        String?
-  email        String?
-  specialty    String[]
-  // Optional default consultation fee for booking
-  fee          Int      @default(5000)
+  id             Int           @id @default(autoincrement())
+  name           String
+  address        String
+  phone          String?
+  email          String?
+  createdAt      DateTime      @default(now())
+  specialty      String[]
+  fee            Int           @default(5000)
   availableHours Json?
-  workDays     String[]
-  createdAt    DateTime @default(now())
-
-  appointments Appointment[]
+  workDays       String[]      @default([])
+  Appointment    Appointment[]
 }
 
 model Lab {
-  id           Int      @id @default(autoincrement())
-  name         String
-  services     String
-  address      String
-  phone        String?
-  email        String?
-  // Optional default fee
-  fee          Int      @default(8000)
+  id             Int           @id @default(autoincrement())
+  name           String
+  services       String
+  address        String
+  phone          String?
+  email          String?
+  createdAt      DateTime      @default(now())
+  fee            Int           @default(8000)
   availableHours Json?
-  workDays     String[]
-  createdAt    DateTime @default(now())
-
-  appointments Appointment[]
+  workDays       String[]      @default([])
+  Appointment    Appointment[]
 }
 
 model Pharmacy {
@@ -207,11 +100,165 @@ model Pharmacy {
   createdAt DateTime @default(now())
 }
 
-model FavoriteDoctor {
-  id       Int    @id @default(autoincrement())
-  userId   String
-  doctorId Int
+model Transaction {
+  id               String             @id
+  userId           String
+  type             TransactionType
+  channel          TransactionChannel
+  amount           Decimal            @db.Decimal(20, 2)
+  currency         String             @default("NGN")
+  status           TransactionStatus  @default(PENDING)
+  reference        String?            @unique
+  paystackResponse Json?
+  meta             Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  User             User               @relation(fields: [userId], references: [id])
+  entries          LedgerEntry[]
+}
 
-  user   User   @relation(fields: [userId], references: [id])
-  doctor Doctor @relation(fields: [doctorId], references: [id])
+model User {
+  id             String           @id @default(uuid())
+  googleId       String?          @unique
+  email          String           @unique
+  name           String
+  picture        String?
+  createdAt      DateTime         @default(now())
+  password       String?
+  updatedAt      DateTime         @updatedAt
+  alcoholUse     String?
+  allergies      String[]
+  bloodGroup     String?
+  drugUse        Boolean?         @default(false)
+  genotype       String?
+  medicalHistory String[]
+  smoker         Boolean?         @default(false)
+  balance        Float?           @default(0)
+  role           String           @default("USER")
+  Appointment    Appointment[]
+  Doctor         Doctor?
+  FavoriteDoctor FavoriteDoctor[]
+  Transaction    Transaction[]
+  Wallet         Wallet?
+  accounts       Account[]
+  escrowsBought  Escrow[]         @relation("EscrowBuyer")
+  escrowsSold    Escrow[]         @relation("EscrowSeller")
+  dependents     Dependent[]
+}
+
+model Dependent {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  relationship String // e.g. "Spouse", "Child", "Parent"
+  dateOfBirth  DateTime?
+  bloodGroup   String?
+  genotype     String?
+  allergies    String?
+  createdAt    DateTime  @default(now())
+}
+
+model Wallet {
+  id        String    @id
+  userId    String    @unique
+  balance   BigInt    @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  User      User      @relation(fields: [userId], references: [id])
+  accounts  Account[]
+}
+
+model Account {
+  id            String      @id @default(uuid())
+  userId        String?
+  walletId      String?
+  accountNumber String      @unique
+  type          AccountType
+  currency      String      @default("NGN")
+  createdAt     DateTime    @default(now())
+  user          User?       @relation(fields: [userId], references: [id])
+  wallet        Wallet?     @relation(fields: [walletId], references: [id])
+  entries       LedgerEntry[]
+
+  @@index([userId])
+}
+
+model LedgerEntry {
+  id            String      @id @default(uuid())
+  transactionId String
+  accountId     String
+  entryType     EntryType
+  amount        Decimal     @db.Decimal(20, 2)
+  narration     String?
+  createdAt     DateTime    @default(now())
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account       Account     @relation(fields: [accountId], references: [id])
+
+  @@index([transactionId])
+  @@index([accountId])
+}
+
+model ReconciliationLog {
+  id            String   @id @default(uuid())
+  reference     String
+  palmpayAmount Decimal  @db.Decimal(20, 2)
+  ledgerAmount  Decimal  @db.Decimal(20, 2)
+  difference    Decimal  @db.Decimal(20, 2)
+  status        String // MATCHED | MISMATCH
+  createdAt     DateTime @default(now())
+
+  @@index([reference])
+}
+
+model Escrow {
+  id        String       @id @default(uuid())
+  buyerId   String
+  sellerId  String
+  amount    Decimal      @db.Decimal(20, 2)
+  status    EscrowStatus @default(PENDING)
+  reference String       @unique
+  createdAt DateTime     @default(now())
+  buyer     User         @relation("EscrowBuyer", fields: [buyerId], references: [id])
+  seller    User         @relation("EscrowSeller", fields: [sellerId], references: [id])
+}
+
+enum TransactionChannel {
+  CARD
+  BANK_TRANSFER
+  USSD
+  WALLET
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum TransactionType {
+  TOPUP
+  PAYMENT
+  REFUND
+}
+
+enum AccountType {
+  USER
+  SYSTEM
+  ESCROW
+  FEES
+}
+
+enum EntryType {
+  DEBIT
+  CREDIT
+}
+
+enum EscrowStatus {
+  PENDING
+  FUNDED
+  RELEASED
+  CANCELLED
+  REFUNDED
 }

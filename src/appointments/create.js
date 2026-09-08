@@ -54,7 +54,6 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    // Special handling for payments coming from payment gateway
     const isFromPayment = source === "PAYMENT_GATEWAY";
 
     const data = {
@@ -79,28 +78,25 @@ export const createAppointment = async (req, res) => {
 
     const appointment = await prisma.appointment.create({ data });
 
+    // Relation names match your schema: Doctor, Hospital, Lab, User
+    const include = {
+      Doctor: true,
+      Hospital: true,
+      Lab: true,
+      User: true,
+    };
+
     let appointmentWithRelations;
     if (type === "DOCTOR") {
-      // Generate video-call room only for doctor appointments
       appointmentWithRelations = await prisma.appointment.update({
         where: { id: appointment.id },
         data: { videoCallUrl: buildVideoCallUrl(appointment.id) },
-        include: {
-          doctor: true,
-          user: true,
-          hospital: true,
-          lab: true,
-        },
+        include,
       });
     } else {
       appointmentWithRelations = await prisma.appointment.findUnique({
         where: { id: appointment.id },
-        include: {
-          doctor: true,
-          user: true,
-          hospital: true,
-          lab: true,
-        },
+        include,
       });
     }
 

@@ -19,6 +19,19 @@ import {
   createDoctor,
   updateDoctor,
   deleteDoctor,
+  provisionDoctorCredentials,
+  listHospitalsAdmin,
+  createHospital,
+  updateHospital,
+  deleteHospital,
+  listLabsAdmin,
+  createLab,
+  updateLab,
+  deleteLab,
+  listPharmaciesAdmin,
+  createPharmacy,
+  updatePharmacy,
+  deletePharmacy,
 } from '../controllers/admin.controller.js';
 
 const router = express.Router();
@@ -42,5 +55,22 @@ router.get('/doctors', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE
 router.post('/doctors', requireRole('SUPER_ADMIN'), createDoctor);
 router.patch('/doctors/:id', requireRole('SUPER_ADMIN'), updateDoctor);
 router.delete('/doctors/:id', requireRole('SUPER_ADMIN'), deleteDoctor);
+router.post('/doctors/:id/credentials', requireRole('SUPER_ADMIN'), provisionDoctorCredentials);
 
 export default router;
+
+router.get('/hospitals', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listHospitalsAdmin);
+router.post('/hospitals', requireRole('SUPER_ADMIN'), createHospital);
+router.patch('/hospitals/:id', requireRole('SUPER_ADMIN'), updateHospital);
+router.delete('/hospitals/:id', requireRole('SUPER_ADMIN'), deleteHospital);
+
+router.get('/labs', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listLabsAdmin);
+router.post('/labs', requireRole('SUPER_ADMIN'), createLab);
+router.patch('/labs/:id', requireRole('SUPER_ADMIN'), updateLab);
+router.delete('/labs/:id', requireRole('SUPER_ADMIN'), deleteLab);
+
+router.get('/pharmacies', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listPharmaciesAdmin);
+router.post('/pharmacies', requireRole('SUPER_ADMIN'), createPharmacy);
+router.patch('/pharmacies/:id', requireRole('SUPER_ADMIN'), updatePharmacy);
+router.delete('/pharmacies/:id', requireRole('SUPER_ADMIN'), deletePharmacy);
+

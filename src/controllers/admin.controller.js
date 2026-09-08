@@ -234,9 +234,37 @@ export const regenerateVideoCallLink = async (req, res) => {
 ================================== */
 export const listDoctorsAdmin = async (req, res) => {
   try {
-    const doctors = await prisma.doctor.findMany({ orderBy: { name: 'asc' } });
-    res.json(doctors);
+    let doctors;
+    try {
+      doctors = await prisma.doctor.findMany({
+        orderBy: { name: 'asc' },
+        include: {
+          User: { select: { id: true, email: true, role: true, createdAt: true } },
+        },
+      });
+    } catch (includeErr) {
+      // Fallback if relation field is named `user` (lowercase) in an older client
+      doctors = await prisma.doctor.findMany({
+        orderBy: { name: 'asc' },
+        include: {
+          user: { select: { id: true, email: true, role: true, createdAt: true } },
+        },
+      });
+    }
+
+    const normalized = doctors.map((d) => {
+      const linked = d.User || d.user || null;
+      const { User, user: _u, ...rest } = d;
+      return {
+        ...rest,
+        userId: rest.userId || linked?.id || null,
+        hasLogin: Boolean(linked || rest.userId),
+        loginEmail: linked?.email || null,
+      };
+    });
+    res.json(normalized);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Failed to fetch doctors' });
   }
 };
@@ -337,5 +365,357 @@ export const deleteDoctor = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete doctor — they may still have appointments on record' });
+  }
+};
+
+
+/**
+ * Provision (or reset) login credentials for an existing directory doctor.
+ * Creates a User with role=DOCTOR if none is linked, or resets the password
+ * on the linked user. Returns the plain-text temp password once.
+ */
+export const provisionDoctorCredentials = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid doctor id' });
+
+    const { email } = req.body;
+
+    let doctor;
+    try {
+      doctor = await prisma.doctor.findUnique({
+        where: { id },
+        include: { User: { select: { id: true, email: true } } },
+      });
+    } catch {
+      doctor = await prisma.doctor.findUnique({
+        where: { id },
+        include: { user: { select: { id: true, email: true } } },
+      });
+    }
+
+    if (!doctor) return res.status(404).json({ error: 'Doctor not found' });
+
+    const tempPassword = crypto.randomBytes(6).toString('base64url');
+    const hashed = await hashPassword(tempPassword);
+
+    // Already linked to a login account — reset password
+    if (doctor.userId) {
+      const user = await prisma.user.update({
+        where: { id: doctor.userId },
+        data: { password: hashed, role: 'DOCTOR' },
+      });
+
+      return res.json({
+        doctorId: doctor.id,
+        loginEmail: user.email,
+        tempPassword,
+        created: false,
+        message: 'Password reset. Share this password with the doctor — it will not be shown again.',
+      });
+    }
+
+    // Need an email to create a new login
+    const loginEmail = (email || '').trim().toLowerCase();
+    if (!loginEmail) {
+      return res.status(400).json({
+        error: 'email is required to create login credentials for a doctor with no linked account',
+      });
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email: loginEmail } });
+    if (existing) {
+      // If the existing user is already a doctor with no profile, link them
+      if (existing.role === 'DOCTOR') {
+        const other = await prisma.doctor.findFirst({ where: { userId: existing.id } });
+        if (other && other.id !== doctor.id) {
+          return res.status(409).json({ error: 'That email is already linked to another doctor profile' });
+        }
+        await prisma.$transaction([
+          prisma.user.update({
+            where: { id: existing.id },
+            data: { password: hashed, name: existing.name || doctor.name },
+          }),
+          prisma.doctor.update({
+            where: { id: doctor.id },
+            data: { userId: existing.id },
+          }),
+        ]);
+        return res.json({
+          doctorId: doctor.id,
+          loginEmail,
+          tempPassword,
+          created: false,
+          message: 'Linked existing account and set a new password.',
+        });
+      }
+      return res.status(409).json({ error: 'A user with this email already exists' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          name: doctor.name,
+          email: loginEmail,
+          password: hashed,
+          role: 'DOCTOR',
+        },
+      });
+      const updated = await tx.doctor.update({
+        where: { id: doctor.id },
+        data: { userId: user.id },
+      });
+      return { user, doctor: updated };
+    });
+
+    return res.status(201).json({
+      doctorId: result.doctor.id,
+      loginEmail,
+      tempPassword,
+      created: true,
+      message: 'Login created. Share email and password with the doctor — the password will not be shown again.',
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to provision doctor credentials' });
+  }
+};
+
+
+/* ================================
+   🏥 Hospitals / Labs / Pharmacies
+================================== */
+export const listHospitalsAdmin = async (req, res) => {
+  try {
+    const items = await prisma.hospital.findMany({ orderBy: { name: 'asc' } });
+    res.json(items);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch hospitals' });
+  }
+};
+
+export const createHospital = async (req, res) => {
+  try {
+    const { name, address, phone, email, specialty, fee } = req.body;
+    if (!name || !address) {
+      return res.status(400).json({ error: 'name and address are required' });
+    }
+    const data = {
+      name,
+      address,
+      phone: phone || null,
+      email: email || null,
+      specialty: Array.isArray(specialty)
+        ? specialty
+        : String(specialty || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+    };
+    if (fee != null && fee !== '') data.fee = Number(fee);
+
+    let hospital;
+    try {
+      hospital = await prisma.hospital.create({ data });
+    } catch (e) {
+      // Older schema without fee column
+      delete data.fee;
+      hospital = await prisma.hospital.create({ data });
+    }
+    res.status(201).json(hospital);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create hospital' });
+  }
+};
+
+export const updateHospital = async (req, res) => {
+  try {
+    const { name, address, phone, email, specialty, fee } = req.body;
+    const data = {
+      ...(name !== undefined ? { name } : {}),
+      ...(address !== undefined ? { address } : {}),
+      ...(phone !== undefined ? { phone } : {}),
+      ...(email !== undefined ? { email } : {}),
+      ...(specialty !== undefined
+        ? {
+            specialty: Array.isArray(specialty)
+              ? specialty
+              : String(specialty)
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+          }
+        : {}),
+      ...(fee !== undefined && fee !== '' ? { fee: Number(fee) } : {}),
+    };
+    let hospital;
+    try {
+      hospital = await prisma.hospital.update({
+        where: { id: Number(req.params.id) },
+        data,
+      });
+    } catch (e) {
+      delete data.fee;
+      hospital = await prisma.hospital.update({
+        where: { id: Number(req.params.id) },
+        data,
+      });
+    }
+    res.json(hospital);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update hospital' });
+  }
+};
+
+export const deleteHospital = async (req, res) => {
+  try {
+    await prisma.hospital.delete({ where: { id: Number(req.params.id) } });
+    res.json({ message: 'Hospital deleted' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete hospital' });
+  }
+};
+
+export const listLabsAdmin = async (req, res) => {
+  try {
+    const items = await prisma.lab.findMany({ orderBy: { name: 'asc' } });
+    res.json(items);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch labs' });
+  }
+};
+
+export const createLab = async (req, res) => {
+  try {
+    const { name, services, address, phone, email, fee } = req.body;
+    if (!name || !address) {
+      return res.status(400).json({ error: 'name and address are required' });
+    }
+    const data = {
+      name,
+      services: services || '',
+      address,
+      phone: phone || null,
+      email: email || null,
+    };
+    if (fee != null && fee !== '') data.fee = Number(fee);
+
+    let lab;
+    try {
+      lab = await prisma.lab.create({ data });
+    } catch (e) {
+      delete data.fee;
+      lab = await prisma.lab.create({ data });
+    }
+    res.status(201).json(lab);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create lab' });
+  }
+};
+
+export const updateLab = async (req, res) => {
+  try {
+    const { name, services, address, phone, email, fee } = req.body;
+    const data = {
+      ...(name !== undefined ? { name } : {}),
+      ...(services !== undefined ? { services } : {}),
+      ...(address !== undefined ? { address } : {}),
+      ...(phone !== undefined ? { phone } : {}),
+      ...(email !== undefined ? { email } : {}),
+      ...(fee !== undefined && fee !== '' ? { fee: Number(fee) } : {}),
+    };
+    let lab;
+    try {
+      lab = await prisma.lab.update({
+        where: { id: Number(req.params.id) },
+        data,
+      });
+    } catch (e) {
+      delete data.fee;
+      lab = await prisma.lab.update({
+        where: { id: Number(req.params.id) },
+        data,
+      });
+    }
+    res.json(lab);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update lab' });
+  }
+};
+
+export const deleteLab = async (req, res) => {
+  try {
+    await prisma.lab.delete({ where: { id: Number(req.params.id) } });
+    res.json({ message: 'Lab deleted' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete lab' });
+  }
+};
+
+export const listPharmaciesAdmin = async (req, res) => {
+  try {
+    const items = await prisma.pharmacy.findMany({ orderBy: { name: 'asc' } });
+    res.json(items);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch pharmacies' });
+  }
+};
+
+export const createPharmacy = async (req, res) => {
+  try {
+    const { name, address, phone, email } = req.body;
+    if (!name || !address) {
+      return res.status(400).json({ error: 'name and address are required' });
+    }
+    const pharmacy = await prisma.pharmacy.create({
+      data: {
+        name,
+        address,
+        phone: phone || null,
+        email: email || null,
+      },
+    });
+    res.status(201).json(pharmacy);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create pharmacy' });
+  }
+};
+
+export const updatePharmacy = async (req, res) => {
+  try {
+    const { name, address, phone, email } = req.body;
+    const pharmacy = await prisma.pharmacy.update({
+      where: { id: Number(req.params.id) },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(address !== undefined ? { address } : {}),
+        ...(phone !== undefined ? { phone } : {}),
+        ...(email !== undefined ? { email } : {}),
+      },
+    });
+    res.json(pharmacy);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update pharmacy' });
+  }
+};
+
+export const deletePharmacy = async (req, res) => {
+  try {
+    await prisma.pharmacy.delete({ where: { id: Number(req.params.id) } });
+    res.json({ message: 'Pharmacy deleted' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete pharmacy' });
   }
 };
