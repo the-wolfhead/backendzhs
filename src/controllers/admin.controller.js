@@ -44,11 +44,25 @@ export const getStats = async (req, res) => {
 ================================== */
 export const listUsers = async (req, res) => {
   try {
-    const { search = '', page = 1, pageSize = 20 } = req.query;
+    const { search = '', page = 1, pageSize = 20, role, group } = req.query;
     const take = Math.min(Number(pageSize) || 20, 100);
     const skip = (Number(page) - 1) * take;
 
-    const where = search
+    // group: patients | doctors | staff | all
+    // role: exact role filter (USER, DOCTOR, SUPER_ADMIN, ...)
+    const STAFF_ROLES = ['SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'];
+    let roleFilter = {};
+    if (role) {
+      roleFilter = { role: String(role).toUpperCase() };
+    } else if (group === 'patients') {
+      roleFilter = { role: 'USER' };
+    } else if (group === 'doctors') {
+      roleFilter = { role: 'DOCTOR' };
+    } else if (group === 'staff') {
+      roleFilter = { role: { in: STAFF_ROLES } };
+    }
+
+    const searchFilter = search
       ? {
           OR: [
             { name: { contains: search, mode: 'insensitive' } },
@@ -57,23 +71,108 @@ export const listUsers = async (req, res) => {
         }
       : {};
 
-    const [users, total] = await Promise.all([
+    const where = {
+      ...roleFilter,
+      ...searchFilter,
+    };
+
+    const [users, total, counts] = await Promise.all([
       prisma.user.findMany({
         where,
         select: {
           id: true, name: true, email: true, role: true, picture: true,
           createdAt: true, googleId: true,
+          Doctor: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip, take,
       }),
       prisma.user.count({ where }),
+      Promise.all([
+        prisma.user.count({ where: { role: 'USER' } }),
+        prisma.user.count({ where: { role: 'DOCTOR' } }),
+        prisma.user.count({ where: { role: { in: STAFF_ROLES } } }),
+      ]).catch(() => [0, 0, 0]),
     ]);
 
-    res.json({ users, total, page: Number(page), pageSize: take });
+    // Normalize Doctor relation
+    const normalized = users.map((u) => {
+      const doctorProfile = u.Doctor || u.doctor || null;
+      const { Doctor, doctor, ...rest } = u;
+      return {
+        ...rest,
+        doctorProfile,
+        accountType:
+          rest.role === 'DOCTOR'
+            ? 'Doctor'
+            : STAFF_ROLES.includes(rest.role)
+              ? 'Staff'
+              : 'Patient',
+      };
+    });
+
+    res.json({
+      users: normalized,
+      total,
+      page: Number(page),
+      pageSize: take,
+      counts: {
+        patients: counts[0] || 0,
+        doctors: counts[1] || 0,
+        staff: counts[2] || 0,
+      },
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch users' });
+    // Fallback without Doctor include if relation name differs
+    try {
+      const { search = '', page = 1, pageSize = 20, role, group } = req.query;
+      const take = Math.min(Number(pageSize) || 20, 100);
+      const skip = (Number(page) - 1) * take;
+      const STAFF_ROLES = ['SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'];
+      let roleFilter = {};
+      if (role) roleFilter = { role: String(role).toUpperCase() };
+      else if (group === 'patients') roleFilter = { role: 'USER' };
+      else if (group === 'doctors') roleFilter = { role: 'DOCTOR' };
+      else if (group === 'staff') roleFilter = { role: { in: STAFF_ROLES } };
+      const where = {
+        ...roleFilter,
+        ...(search
+          ? {
+              OR: [
+                { name: { contains: search, mode: 'insensitive' } },
+                { email: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      };
+      const [users, total] = await Promise.all([
+        prisma.user.findMany({
+          where,
+          select: {
+            id: true, name: true, email: true, role: true, picture: true,
+            createdAt: true, googleId: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          skip, take,
+        }),
+        prisma.user.count({ where }),
+      ]);
+      res.json({
+        users: users.map((u) => ({
+          ...u,
+          accountType:
+            u.role === 'DOCTOR' ? 'Doctor' : STAFF_ROLES.includes(u.role) ? 'Staff' : 'Patient',
+        })),
+        total,
+        page: Number(page),
+        pageSize: take,
+        counts: { patients: 0, doctors: 0, staff: 0 },
+      });
+    } catch (err2) {
+      console.error(err2);
+      res.status(500).json({ error: 'Failed to fetch users' });
+    }
   }
 };
 
@@ -142,9 +241,13 @@ export const updateUserRole = async (req, res) => {
 ================================== */
 export const listAppointments = async (req, res) => {
   try {
-    const { search = '', status, page = 1, pageSize = 20 } = req.query;
+    const { search = '', status, type, page = 1, pageSize = 20 } = req.query;
     const take = Math.min(Number(pageSize) || 20, 100);
     const skip = (Number(page) - 1) * take;
+
+    const typeFilter = type && String(type).toUpperCase() !== 'ALL'
+      ? { type: String(type).toUpperCase() }
+      : {};
 
     // Relation field names differ across schema versions:
     // live schema uses PascalCase (Doctor, User, Hospital, Lab).
@@ -159,6 +262,7 @@ export const listAppointments = async (req, res) => {
       : undefined;
 
     const where = {
+      ...typeFilter,
       ...(status ? { status } : {}),
       ...(searchOr ? { OR: searchOr } : {}),
     };
@@ -309,24 +413,49 @@ export const listAppointments = async (req, res) => {
 
 export const updateAppointment = async (req, res) => {
   try {
-    const { status, date, time, patientName } = req.body;
+    const { status, date, time, patientName, resultUrl, resultNotes } = req.body;
     const id = Number(req.params.id);
 
-    const appointment = await prisma.appointment.update({
-      where: { id },
-      data: {
-        ...(status !== undefined ? { status } : {}),
-        ...(date !== undefined ? { date: new Date(date) } : {}),
-        ...(time !== undefined ? { time } : {}),
-        ...(patientName !== undefined ? { patientName } : {}),
-      },
-      include: {
-        Doctor: true,
-        Hospital: true,
-        Lab: true,
-        User: { select: { id: true, name: true, email: true } },
-      },
-    });
+    const data = {
+      ...(status !== undefined ? { status } : {}),
+      ...(date !== undefined ? { date: new Date(date) } : {}),
+      ...(time !== undefined ? { time } : {}),
+      ...(patientName !== undefined ? { patientName } : {}),
+    };
+
+    if (resultUrl !== undefined) {
+      data.resultUrl = resultUrl || null;
+      data.resultUploadedAt = resultUrl ? new Date() : null;
+    }
+    if (resultNotes !== undefined) {
+      data.resultNotes = resultNotes || null;
+      if (resultNotes && !data.resultUploadedAt) {
+        data.resultUploadedAt = new Date();
+      }
+    }
+
+    let appointment;
+    try {
+      appointment = await prisma.appointment.update({
+        where: { id },
+        data,
+        include: {
+          Doctor: true,
+          Hospital: true,
+          Lab: true,
+          User: { select: { id: true, name: true, email: true } },
+        },
+      });
+    } catch (e) {
+      appointment = await prisma.appointment.update({
+        where: { id },
+        data,
+        include: {
+          doctor: true,
+          user: { select: { id: true, name: true, email: true } },
+        },
+      });
+    }
 
     res.json(appointment);
   } catch (err) {
@@ -850,5 +979,332 @@ export const deletePharmacy = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete pharmacy' });
+  }
+};
+
+
+/* ================================
+   💳 Transactions (admin)
+   Reads from the ZHS Transaction table so the dashboard works even when
+   the separate payment-gateway service is down or JWT_SECRET differs.
+================================== */
+export const listTransactionsAdmin = async (req, res) => {
+  try {
+    const { search = '', status, page = 1, pageSize = 20, type, channel } = req.query;
+    const take = Math.min(Number(pageSize) || 20, 100);
+    const skip = (Number(page) - 1) * take;
+
+    const where = {
+      ...(status ? { status: String(status).toUpperCase() } : {}),
+      ...(type ? { type: String(type).toUpperCase() } : {}),
+      ...(channel ? { channel: String(channel).toUpperCase() } : {}),
+      ...(search
+        ? {
+            OR: [
+              { reference: { contains: search, mode: 'insensitive' } },
+              { id: { contains: search, mode: 'insensitive' } },
+              { User: { email: { contains: search, mode: 'insensitive' } } },
+              { User: { name: { contains: search, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    };
+
+    let transactions;
+    let total;
+    try {
+      [transactions, total] = await Promise.all([
+        prisma.transaction.findMany({
+          where,
+          include: {
+            User: { select: { id: true, name: true, email: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take,
+        }),
+        prisma.transaction.count({ where }),
+      ]);
+    } catch (relErr) {
+      // camelCase user relation / no nested User search
+      const whereCamel = {
+        ...(status ? { status: String(status).toUpperCase() } : {}),
+        ...(type ? { type: String(type).toUpperCase() } : {}),
+        ...(channel ? { channel: String(channel).toUpperCase() } : {}),
+        ...(search
+          ? {
+              OR: [
+                { reference: { contains: search, mode: 'insensitive' } },
+                { id: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      };
+      try {
+        [transactions, total] = await Promise.all([
+          prisma.transaction.findMany({
+            where: whereCamel,
+            include: { user: { select: { id: true, name: true, email: true } } },
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take,
+          }),
+          prisma.transaction.count({ where: whereCamel }),
+        ]);
+      } catch {
+        [transactions, total] = await Promise.all([
+          prisma.transaction.findMany({
+            where: whereCamel,
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take,
+          }),
+          prisma.transaction.count({ where: whereCamel }),
+        ]);
+      }
+    }
+
+    const normalized = transactions.map((tx) => {
+      const user = tx.User || tx.user || null;
+      const { User, user: _u, ...rest } = tx;
+      return {
+        ...rest,
+        // Decimal / BigInt safe for JSON
+        amount: rest.amount != null ? Number(rest.amount) : 0,
+        user,
+        userId: rest.userId,
+        userName: user?.name || null,
+        userEmail: user?.email || null,
+      };
+    });
+
+    res.json({
+      transactions: normalized,
+      total,
+      page: Number(page),
+      pageSize: take,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch transactions' });
+  }
+};
+
+export const getTransactionAdmin = async (req, res) => {
+  try {
+    const refOrId = req.params.reference;
+    let tx = await prisma.transaction.findFirst({
+      where: {
+        OR: [{ reference: refOrId }, { id: refOrId }],
+      },
+      include: { User: { select: { id: true, name: true, email: true } } },
+    }).catch(() => null);
+
+    if (!tx) {
+      tx = await prisma.transaction.findFirst({
+        where: {
+          OR: [{ reference: refOrId }, { id: refOrId }],
+        },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      });
+    }
+
+    if (!tx) return res.status(404).json({ error: 'Transaction not found' });
+
+    const user = tx.User || tx.user || null;
+    const { User, user: _u, ...rest } = tx;
+    res.json({
+      ...rest,
+      amount: rest.amount != null ? Number(rest.amount) : 0,
+      user,
+      userName: user?.name,
+      userEmail: user?.email,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch transaction' });
+  }
+};
+
+export const markTransactionFailed = async (req, res) => {
+  try {
+    const refOrId = req.params.reference;
+    const existing = await prisma.transaction.findFirst({
+      where: { OR: [{ reference: refOrId }, { id: refOrId }] },
+    });
+    if (!existing) return res.status(404).json({ error: 'Transaction not found' });
+
+    const tx = await prisma.transaction.update({
+      where: { id: existing.id },
+      data: { status: 'FAILED' },
+    });
+    res.json({
+      ...tx,
+      amount: tx.amount != null ? Number(tx.amount) : 0,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to mark transaction as failed' });
+  }
+};
+
+/**
+ * "Retry" on the records backend: if a TOPUP is still PENDING, mark it
+ * SUCCESS and credit the user wallet (amounts stored in kobo/subunits on Wallet).
+ * Full PalmPay re-query still belongs on the payment gateway when available.
+ */
+export const retryTransactionAdmin = async (req, res) => {
+  try {
+    const refOrId = req.params.reference;
+    const existing = await prisma.transaction.findFirst({
+      where: { OR: [{ reference: refOrId }, { id: refOrId }] },
+    });
+    if (!existing) return res.status(404).json({ error: 'Transaction not found' });
+
+    if (existing.status === 'SUCCESS') {
+      return res.json({
+        ...existing,
+        amount: existing.amount != null ? Number(existing.amount) : 0,
+        message: 'Transaction already SUCCESS',
+      });
+    }
+
+    if (existing.status === 'REFUNDED') {
+      return res.status(400).json({ error: 'Cannot retry a refunded transaction' });
+    }
+
+    const amountNum = existing.amount != null ? Number(existing.amount) : 0;
+    // Wallet balance is BigInt kobo; Transaction.amount is Decimal Naira in your schema.
+    // Credit wallet in kobo (×100) when treating amount as Naira.
+    const kobo = BigInt(Math.round(amountNum * 100));
+
+    const result = await prisma.$transaction(async (db) => {
+      const tx = await db.transaction.update({
+        where: { id: existing.id },
+        data: { status: 'SUCCESS' },
+      });
+
+      if (existing.type === 'TOPUP' && existing.userId && kobo > 0n) {
+        const wallet = await db.wallet.findUnique({ where: { userId: existing.userId } });
+        if (wallet) {
+          await db.wallet.update({
+            where: { id: wallet.id },
+            data: { balance: wallet.balance + kobo },
+          });
+        } else {
+          await db.wallet.create({
+            data: {
+              id: crypto.randomUUID ? crypto.randomUUID() : existing.userId,
+              userId: existing.userId,
+              balance: kobo,
+            },
+          });
+        }
+      }
+
+      return tx;
+    });
+
+    res.json({
+      ...result,
+      amount: result.amount != null ? Number(result.amount) : 0,
+      message: 'Marked SUCCESS' + (existing.type === 'TOPUP' ? ' and wallet credited' : ''),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to retry transaction' });
+  }
+};
+
+export const listReconciliationAdmin = async (req, res) => {
+  try {
+    const { page = 1, pageSize = 20, status } = req.query;
+    const take = Math.min(Number(pageSize) || 20, 100);
+    const skip = (Number(page) - 1) * take;
+    const where = status ? { status: String(status).toUpperCase() } : {};
+
+    const [logs, total] = await Promise.all([
+      prisma.reconciliationLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      prisma.reconciliationLog.count({ where }),
+    ]);
+
+    res.json({
+      logs: logs.map((l) => ({
+        ...l,
+        palmpayAmount: Number(l.palmpayAmount),
+        ledgerAmount: Number(l.ledgerAmount),
+        difference: Number(l.difference),
+      })),
+      total,
+      page: Number(page),
+      pageSize: take,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch reconciliation logs' });
+  }
+};
+
+export const listAccountsAdmin = async (req, res) => {
+  try {
+    const { page = 1, pageSize = 20, search = '' } = req.query;
+    const take = Math.min(Number(pageSize) || 20, 100);
+    const skip = (Number(page) - 1) * take;
+
+    const where = search
+      ? {
+          OR: [
+            { accountNumber: { contains: search, mode: 'insensitive' } },
+            { user: { email: { contains: search, mode: 'insensitive' } } },
+            { user: { name: { contains: search, mode: 'insensitive' } } },
+          ],
+        }
+      : {};
+
+    let accounts;
+    let total;
+    try {
+      [accounts, total] = await Promise.all([
+        prisma.account.findMany({
+          where,
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+            wallet: { select: { id: true, balance: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take,
+        }),
+        prisma.account.count({ where }),
+      ]);
+    } catch {
+      [accounts, total] = await Promise.all([
+        prisma.account.findMany({
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take,
+        }),
+        prisma.account.count(),
+      ]);
+    }
+
+    res.json({
+      accounts: accounts.map((a) => ({
+        ...a,
+        walletBalance:
+          a.wallet?.balance != null ? Number(a.wallet.balance) : null,
+      })),
+      total,
+      page: Number(page),
+      pageSize: take,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch accounts' });
   }
 };

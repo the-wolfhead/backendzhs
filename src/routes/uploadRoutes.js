@@ -12,6 +12,8 @@ const ALLOWED_FOLDERS = {
   'profile-photos': 'zhs/profile-photos',
   'doctor-photos': 'zhs/doctor-photos',
   'medical-documents': 'zhs/medical-documents',
+  'lab-results': 'zhs/lab-results',
+  'hospital-reports': 'zhs/hospital-reports',
 };
 
 function uploadBufferToCloudinary(buffer, folder) {

@@ -31,6 +31,10 @@ model Appointment {
   paymentReference String?   @unique
   paymentStatus    String    @default("PENDING")
   source           String    @default("DIRECT")
+  // Lab / hospital report or doctor clinical attachment
+  resultUrl        String?
+  resultNotes      String?
+  resultUploadedAt DateTime?
   Doctor           Doctor?   @relation(fields: [doctorId], references: [id])
   Hospital         Hospital? @relation(fields: [hospitalId], references: [id])
   Lab              Lab?      @relation(fields: [labId], references: [id])

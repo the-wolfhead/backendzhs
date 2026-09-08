@@ -1,0 +1,3 @@
+ALTER TABLE "Appointment" ADD COLUMN IF NOT EXISTS "resultUrl" TEXT;
+ALTER TABLE "Appointment" ADD COLUMN IF NOT EXISTS "resultNotes" TEXT;
+ALTER TABLE "Appointment" ADD COLUMN IF NOT EXISTS "resultUploadedAt" TIMESTAMP(3);

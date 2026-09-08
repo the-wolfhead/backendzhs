@@ -32,6 +32,12 @@ import {
   createPharmacy,
   updatePharmacy,
   deletePharmacy,
+  listTransactionsAdmin,
+  getTransactionAdmin,
+  markTransactionFailed,
+  retryTransactionAdmin,
+  listReconciliationAdmin,
+  listAccountsAdmin,
 } from '../controllers/admin.controller.js';
 
 const router = express.Router();
@@ -57,8 +63,6 @@ router.patch('/doctors/:id', requireRole('SUPER_ADMIN'), updateDoctor);
 router.delete('/doctors/:id', requireRole('SUPER_ADMIN'), deleteDoctor);
 router.post('/doctors/:id/credentials', requireRole('SUPER_ADMIN'), provisionDoctorCredentials);
 
-export default router;
-
 router.get('/hospitals', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listHospitalsAdmin);
 router.post('/hospitals', requireRole('SUPER_ADMIN'), createHospital);
 router.patch('/hospitals/:id', requireRole('SUPER_ADMIN'), updateHospital);
@@ -74,3 +78,12 @@ router.post('/pharmacies', requireRole('SUPER_ADMIN'), createPharmacy);
 router.patch('/pharmacies/:id', requireRole('SUPER_ADMIN'), updatePharmacy);
 router.delete('/pharmacies/:id', requireRole('SUPER_ADMIN'), deletePharmacy);
 
+router.get('/transactions', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'), listTransactionsAdmin);
+router.get('/transactions/:reference', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'), getTransactionAdmin);
+router.post('/transactions/:reference/mark-failed', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'FINANCE'), markTransactionFailed);
+router.post('/transactions/:reference/retry', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'FINANCE'), retryTransactionAdmin);
+
+router.get('/reconciliation', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'FINANCE', 'AUDITOR'), listReconciliationAdmin);
+router.get('/accounts', requireRole('SUPER_ADMIN', 'FINANCE', 'AUDITOR'), listAccountsAdmin);
+
+export default router;
