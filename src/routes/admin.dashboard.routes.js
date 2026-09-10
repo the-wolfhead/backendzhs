@@ -38,6 +38,8 @@ import {
   provisionHospitalLogin,
   provisionLabLogin,
   getMyPermissions,
+  listDoctorCredentials,
+  reviewDoctorCredential,
 } from '../controllers/admin.controller.js';
 
 const router = express.Router();
@@ -48,6 +50,13 @@ router.use(authenticateToken, requireRole(...ANY_STAFF));
 // ── Overview ───────────────────────────────────────────────────────────────
 router.get('/stats', requirePermission('admin.stats.read'), getStats);
 router.get('/me/permissions', getMyPermissions);
+
+router.get('/doctor-credentials', requirePermission('admin.doctors.read'), listDoctorCredentials);
+router.post(
+  '/doctor-credentials/:id/review',
+  requirePermission('admin.doctors.write'),
+  reviewDoctorCredential
+);
 
 // ── Users ──────────────────────────────────────────────────────────────────
 router.get('/users', requirePermission('admin.users.read'), listUsers);

@@ -273,3 +273,93 @@ export const uploadMyAppointmentResult = async (req, res) => {
     res.status(500).json({ error: 'Failed to upload result' });
   }
 };
+
+/* ================================
+   📋 Credential verification
+================================== */
+export const getMyCredentials = async (req, res) => {
+  try {
+    const doctorId = req.doctor.id;
+    let latest = null;
+    try {
+      latest = await prisma.doctorCredential.findFirst({
+        where: { doctorId },
+        orderBy: { submittedAt: 'desc' },
+      });
+    } catch (e) {
+      // Table may not exist yet
+      return res.json({
+        verificationStatus: req.doctor.verificationStatus || 'UNVERIFIED',
+        submission: null,
+        message: 'Credential storage not ready',
+      });
+    }
+
+    res.json({
+      verificationStatus: req.doctor.verificationStatus || 'UNVERIFIED',
+      submission: latest,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load credentials', detail: err.message });
+  }
+};
+
+export const submitMyCredentials = async (req, res) => {
+  try {
+    const doctorId = req.doctor.id;
+    const {
+      licenseNumber,
+      licenseBody,
+      licenseExpiry,
+      medicalSchool,
+      graduationYear,
+      specialtyClaim,
+      documents,
+      notes,
+    } = req.body;
+
+    if (!licenseNumber && !Array.isArray(documents)) {
+      return res.status(400).json({
+        error: 'Provide at least a license number or one supporting document',
+      });
+    }
+
+    const data = {
+      doctorId,
+      licenseNumber: licenseNumber ? String(licenseNumber).trim() : null,
+      licenseBody: licenseBody ? String(licenseBody).trim() : null,
+      licenseExpiry: licenseExpiry ? new Date(licenseExpiry) : null,
+      medicalSchool: medicalSchool ? String(medicalSchool).trim() : null,
+      graduationYear: graduationYear != null && graduationYear !== '' ? Number(graduationYear) : null,
+      specialtyClaim: specialtyClaim ? String(specialtyClaim).trim() : null,
+      documents: Array.isArray(documents) ? documents : documents ? [documents] : [],
+      notes: notes ? String(notes).trim() : null,
+      status: 'PENDING',
+      reviewNotes: null,
+      reviewedAt: null,
+      reviewedBy: null,
+    };
+
+    const submission = await prisma.doctorCredential.create({ data });
+
+    // Mark doctor as pending review
+    try {
+      await prisma.doctor.update({
+        where: { id: doctorId },
+        data: { verificationStatus: 'PENDING' },
+      });
+    } catch (_) {
+      // Column may not exist yet
+    }
+
+    res.status(201).json({
+      submission,
+      verificationStatus: 'PENDING',
+      message: 'Credentials submitted for verification. An admin will review them shortly.',
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to submit credentials', detail: err.message });
+  }
+};

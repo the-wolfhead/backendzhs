@@ -1528,3 +1528,92 @@ export const getMyPermissions = async (req, res) => {
     res.status(500).json({ error: 'Failed to resolve permissions' });
   }
 };
+
+
+/* ================================
+   📋 Doctor credential verification (admin)
+================================== */
+export const listDoctorCredentials = async (req, res) => {
+  try {
+    const { status = 'PENDING', page = 1, pageSize = 20 } = req.query;
+    const take = Math.min(Number(pageSize) || 20, 100);
+    const skip = (Number(page) - 1) * take;
+    const where = status && status !== 'all' ? { status: String(status).toUpperCase() } : {};
+
+    const [items, total] = await Promise.all([
+      prisma.doctorCredential.findMany({
+        where,
+        include: {
+          Doctor: {
+            select: {
+              id: true,
+              name: true,
+              specialty: true,
+              verificationStatus: true,
+              User: { select: { id: true, email: true, name: true } },
+            },
+          },
+        },
+        orderBy: { submittedAt: 'desc' },
+        skip,
+        take,
+      }),
+      prisma.doctorCredential.count({ where }),
+    ]);
+
+    res.json({
+      items: items.map((i) => {
+        const doctor = i.Doctor || i.doctor;
+        const { Doctor, doctor: _d, ...rest } = i;
+        return { ...rest, doctor };
+      }),
+      total,
+      page: Number(page),
+      pageSize: take,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to list credential submissions', detail: err.message });
+  }
+};
+
+export const reviewDoctorCredential = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { status, reviewNotes } = req.body;
+    const s = String(status || '').toUpperCase();
+    if (!['APPROVED', 'REJECTED'].includes(s)) {
+      return res.status(400).json({ error: 'status must be APPROVED or REJECTED' });
+    }
+
+    const existing = await prisma.doctorCredential.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: 'Submission not found' });
+
+    const submission = await prisma.doctorCredential.update({
+      where: { id },
+      data: {
+        status: s,
+        reviewNotes: reviewNotes ? String(reviewNotes).trim() : null,
+        reviewedAt: new Date(),
+        reviewedBy: req.user.id,
+      },
+    });
+
+    try {
+      await prisma.doctor.update({
+        where: { id: existing.doctorId },
+        data: {
+          verificationStatus: s === 'APPROVED' ? 'VERIFIED' : 'REJECTED',
+        },
+      });
+    } catch (_) {}
+
+    res.json({
+      submission,
+      message: s === 'APPROVED' ? 'Doctor verified' : 'Credentials rejected',
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to review credentials', detail: err.message });
+  }
+};

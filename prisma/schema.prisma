@@ -54,9 +54,35 @@ model Doctor {
   isOnline       Boolean          @default(false)
   userId         String?          @unique
   workDays       String[]
-  Appointment    Appointment[]
-  User           User?            @relation(fields: [userId], references: [id])
-  FavoriteDoctor FavoriteDoctor[]
+  verificationStatus String            @default("UNVERIFIED") // UNVERIFIED | PENDING | VERIFIED | REJECTED
+  Appointment        Appointment[]
+  User               User?             @relation(fields: [userId], references: [id])
+  FavoriteDoctor     FavoriteDoctor[]
+  Credentials        DoctorCredential[]
+}
+
+model DoctorCredential {
+  id              String    @id @default(uuid())
+  doctorId        Int
+  licenseNumber   String?
+  licenseBody     String?
+  licenseExpiry   DateTime?
+  medicalSchool   String?
+  graduationYear  Int?
+  specialtyClaim  String?
+  // [{ type: "license"|"certificate"|"id", url, name, uploadedAt }]
+  documents       Json?
+  notes           String?
+  status          String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewNotes     String?
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  submittedAt     DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  Doctor          Doctor    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId])
+  @@index([status])
 }
 
 model FavoriteDoctor {

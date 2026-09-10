@@ -12,6 +12,8 @@ import {
   getFacilityAppointments,
   updateFacilityAppointment,
   uploadMyAppointmentResult,
+  getMyCredentials,
+  submitMyCredentials,
 } from '../controllers/doctorPortal.controller.js';
 
 const router = express.Router();
@@ -28,6 +30,9 @@ router.patch('/online', ...doctorOnly, setOnlineStatus);
 router.get('/appointments', ...doctorOnly, getMyAppointments);
 router.patch('/appointments/:id', ...doctorOnly, updateMyAppointmentStatus);
 router.post('/appointments/:id/results', ...doctorOnly, uploadMyAppointmentResult);
+
+router.get('/credentials', ...doctorOnly, getMyCredentials);
+router.post('/credentials', ...doctorOnly, submitMyCredentials);
 
 const facilityAccess = [authenticateToken, requireFacilityAccess];
 
