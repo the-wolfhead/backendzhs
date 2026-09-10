@@ -4,6 +4,7 @@ import cors from 'cors';
 import session from 'cookie-session';
 import passport from './config/passport.js';
 import authRoutes from './routes/authRoutes.js';
+import providerSignupRoutes from './routes/providerSignup.routes.js';
 
 dotenv.config();
 

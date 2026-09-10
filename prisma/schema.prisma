@@ -102,12 +102,14 @@ model Lab {
 }
 
 model Pharmacy {
-  id        Int      @id @default(autoincrement())
-  name      String
-  address   String
-  phone     String?
-  email     String?
-  createdAt DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  name        String
+  address     String
+  phone       String?
+  email       String?
+  createdAt   DateTime @default(now())
+  staffUserId String?  @unique
+  StaffUser   User?    @relation("PharmacyStaff", fields: [staffUserId], references: [id])
 }
 
 model Transaction {
@@ -155,6 +157,7 @@ model User {
   escrowsSold      Escrow[]         @relation("EscrowSeller")
   StaffHospital    Hospital?        @relation("HospitalStaff")
   StaffLab         Lab?             @relation("LabStaff")
+  StaffPharmacy    Pharmacy?        @relation("PharmacyStaff")
   dependents     Dependent[]
 }
 

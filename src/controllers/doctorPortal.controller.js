@@ -1,3 +1,4 @@
+import { findAppointmentsResilient } from '../utils/appointmentQuery.js';
 import { assertFacilityTypeAllowed } from '../middleware/requireFacilityAccess.js';
 // src/controllers/doctorPortal.controller.js
 import prisma from '../prismaClient.js';
@@ -73,42 +74,16 @@ export const getMyAppointments = async (req, res) => {
       ...(status ? { status } : {}),
     };
 
-    let appointments;
-    let total;
-    try {
-      [appointments, total] = await Promise.all([
-        prisma.appointment.findMany({
-          where,
-          include: { User: { select: { id: true, name: true, email: true, picture: true } } },
-          orderBy: { date: 'desc' },
-          skip,
-          take,
-        }),
-        prisma.appointment.count({ where }),
-      ]);
-    } catch {
-      [appointments, total] = await Promise.all([
-        prisma.appointment.findMany({
-          where,
-          include: { user: { select: { id: true, name: true, email: true, picture: true } } },
-          orderBy: { date: 'desc' },
-          skip,
-          take,
-        }),
-        prisma.appointment.count({ where }),
-      ]);
-    }
-
-    const normalized = appointments.map((a) => {
-      const user = a.User || a.user || null;
-      const { User, user: _u, ...rest } = a;
-      return { ...rest, user };
+    const { appointments, total } = await findAppointmentsResilient(prisma, {
+      where,
+      skip,
+      take,
     });
 
-    res.json({ appointments: normalized, total, page: Number(page), pageSize: take });
+    res.json({ appointments, total, page: Number(page), pageSize: take });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch appointments' });
+    res.status(500).json({ error: 'Failed to fetch appointments', detail: err.message });
   }
 };
 
@@ -158,7 +133,6 @@ export const getFacilityAppointments = async (req, res) => {
     const take = Math.min(Number(pageSize) || 20, 100);
     const skip = (Number(page) - 1) * take;
 
-    // Default type from role when not specified
     let t = type ? String(type).toUpperCase() : null;
     if (!t) {
       if (req.user.role === 'HOSPITAL') t = 'HOSPITAL';
@@ -170,11 +144,12 @@ export const getFacilityAppointments = async (req, res) => {
     if (denied) return res.status(403).json({ error: denied });
 
     const where = {
-      type: t,
       ...(status ? { status } : {}),
     };
 
-    // Scope HOSPITAL / LAB staff to their linked facility when set
+    // Prefer type filter when column exists; helper strips it if not
+    where.type = t;
+
     if (req.user.role === 'HOSPITAL') {
       try {
         const linked = await prisma.hospital.findFirst({
@@ -194,55 +169,39 @@ export const getFacilityAppointments = async (req, res) => {
       } catch (_) {}
     }
 
-    const includePascal = {
-      Hospital: { select: { id: true, name: true, address: true } },
-      Lab: { select: { id: true, name: true, services: true } },
-      User: { select: { id: true, name: true, email: true, picture: true } },
-    };
-    const includeCamel = {
-      hospital: { select: { id: true, name: true, address: true } },
-      lab: { select: { id: true, name: true, services: true } },
-      user: { select: { id: true, name: true, email: true, picture: true } },
-    };
-
-    let appointments;
-    let total;
-    try {
-      [appointments, total] = await Promise.all([
-        prisma.appointment.findMany({
-          where,
-          include: includePascal,
-          orderBy: { date: 'desc' },
-          skip,
-          take,
-        }),
-        prisma.appointment.count({ where }),
-      ]);
-    } catch {
-      [appointments, total] = await Promise.all([
-        prisma.appointment.findMany({
-          where,
-          include: includeCamel,
-          orderBy: { date: 'desc' },
-          skip,
-          take,
-        }),
-        prisma.appointment.count({ where }),
-      ]);
-    }
-
-    const normalized = appointments.map((a) => {
-      const hospital = a.Hospital || a.hospital || null;
-      const lab = a.Lab || a.lab || null;
-      const user = a.User || a.user || null;
-      const { Hospital, Lab, User, hospital: h, lab: l, user: u, ...rest } = a;
-      return { ...rest, hospital, lab, user };
+    const { appointments, total } = await findAppointmentsResilient(prisma, {
+      where,
+      skip,
+      take,
     });
 
-    res.json({ appointments: normalized, total, page: Number(page), pageSize: take });
+    // If type column missing, helper may return all — filter client-side
+    let list = appointments;
+    if (t === 'HOSPITAL') {
+      list = list.filter(
+        (a) =>
+          (a.type || '').toUpperCase() === 'HOSPITAL' ||
+          a.hospitalId != null ||
+          a.hospital
+      );
+    } else if (t === 'LAB') {
+      list = list.filter(
+        (a) =>
+          (a.type || '').toUpperCase() === 'LAB' ||
+          a.labId != null ||
+          a.lab
+      );
+    }
+
+    res.json({
+      appointments: list,
+      total: list.length,
+      page: Number(page),
+      pageSize: take,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch facility appointments' });
+    res.status(500).json({ error: 'Failed to fetch facility appointments', detail: err.message });
   }
 };
 

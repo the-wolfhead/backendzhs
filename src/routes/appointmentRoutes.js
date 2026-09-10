@@ -7,6 +7,7 @@ import { createAppointment } from '../appointments/create.js';
 import { internalAuthMiddleware } from '../middleware/internalAuth.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { buildVideoCallUrl } from '../utils/videoCall.js';
+import { findAppointmentsResilient, normalizeAppointment } from '../utils/appointmentQuery.js';
 
 // Protected Internal Route (used by paymentgatewaybackend)
 router.post('/create',
@@ -19,15 +20,14 @@ router.post('/create',
 ================================== */
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const appointments = await prisma.appointment.findMany({
+    const { appointments } = await findAppointmentsResilient(prisma, {
       where: { userId: req.user.id },
-      include: { Doctor: true, Hospital: true, Lab: true },
       orderBy: { date: 'asc' },
     });
     res.json(appointments);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch appointments' });
+    res.status(500).json({ error: 'Failed to fetch appointments', detail: err.message });
   }
 });
 
@@ -36,13 +36,13 @@ router.get('/', authenticateToken, async (req, res) => {
 ================================== */
 router.get('/doctor/:doctorId', async (req, res) => {
   try {
-    const appointments = await prisma.appointment.findMany({
+    const { appointments } = await findAppointmentsResilient(prisma, {
       where: { doctorId: Number(req.params.doctorId) },
       orderBy: { date: 'asc' },
     });
     res.json(appointments);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch doctor appointments' });
+    res.status(500).json({ error: 'Failed to fetch doctor appointments', detail: err.message });
   }
 });
 
@@ -57,24 +57,33 @@ router.get('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid appointment ID' });
     }
 
-    const appointment = await prisma.appointment.findUnique({
-      where: { id },
-      include: {
-        Doctor: true,
-        Hospital: true,
-        Lab: true,
-        User: { select: { id: true, name: true, email: true } },
-      },
-    });
+    let appointment = null;
+    const includeTries = [
+      { Doctor: true, Hospital: true, Lab: true, User: { select: { id: true, name: true, email: true } } },
+      { Doctor: true, User: { select: { id: true, name: true, email: true } } },
+      { doctor: true, user: { select: { id: true, name: true, email: true } } },
+      undefined,
+    ];
+    for (const include of includeTries) {
+      try {
+        appointment = await prisma.appointment.findUnique({
+          where: { id },
+          ...(include ? { include } : {}),
+        });
+        break;
+      } catch (e) {
+        console.warn('findUnique appointment attempt failed:', e.message);
+      }
+    }
 
     if (!appointment) {
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
-    res.json(appointment);
+    res.json(normalizeAppointment(appointment));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch appointment' });
+    res.status(500).json({ error: 'Failed to fetch appointment', detail: err.message });
   }
 });
 
@@ -243,14 +252,13 @@ router.post('/', authenticateToken, async (req, res) => {
 ================================== */
 router.get('/hospital/:hospitalId', async (req, res) => {
   try {
-    const appointments = await prisma.appointment.findMany({
+    const { appointments } = await findAppointmentsResilient(prisma, {
       where: { hospitalId: Number(req.params.hospitalId) },
-      include: { User: { select: { id: true, name: true, email: true } } },
       orderBy: { date: 'asc' },
     });
     res.json(appointments);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch hospital appointments' });
+    res.status(500).json({ error: 'Failed to fetch hospital appointments', detail: err.message });
   }
 });
 
@@ -259,14 +267,13 @@ router.get('/hospital/:hospitalId', async (req, res) => {
 ================================== */
 router.get('/lab/:labId', async (req, res) => {
   try {
-    const appointments = await prisma.appointment.findMany({
+    const { appointments } = await findAppointmentsResilient(prisma, {
       where: { labId: Number(req.params.labId) },
-      include: { User: { select: { id: true, name: true, email: true } } },
       orderBy: { date: 'asc' },
     });
     res.json(appointments);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch lab appointments' });
+    res.status(500).json({ error: 'Failed to fetch lab appointments', detail: err.message });
   }
 });
 

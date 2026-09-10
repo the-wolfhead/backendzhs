@@ -1,6 +1,7 @@
 // src/controllers/admin.controller.js
 import crypto from 'crypto';
 import prisma from '../prismaClient.js';
+import { findAppointmentsResilient } from '../utils/appointmentQuery.js';
 import { buildVideoCallUrl } from '../utils/videoCall.js';
 import { hashPassword } from '../utils/hash.js';
 
@@ -229,7 +230,7 @@ export const getUserDetail = async (req, res) => {
 export const updateUserRole = async (req, res) => {
   try {
     const { role } = req.body;
-    const validRoles = ['USER', 'DOCTOR', 'HOSPITAL', 'LAB', 'SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'];
+    const validRoles = ['USER', 'DOCTOR', 'HOSPITAL', 'LAB', 'PHARMACY', 'SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'];
 
     if (!validRoles.includes(role)) {
       return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
@@ -262,169 +263,49 @@ export const listAppointments = async (req, res) => {
     const take = Math.min(Number(pageSize) || 20, 100);
     const skip = (Number(page) - 1) * take;
 
-    const typeFilter = type && String(type).toUpperCase() !== 'ALL'
-      ? { type: String(type).toUpperCase() }
-      : {};
-
-    // Relation field names differ across schema versions:
-    // live schema uses PascalCase (Doctor, User, Hospital, Lab).
-    const searchOr = search
-      ? [
-          { patientName: { contains: search, mode: 'insensitive' } },
-          { paymentReference: { contains: search, mode: 'insensitive' } },
-          { Doctor: { name: { contains: search, mode: 'insensitive' } } },
-          { Hospital: { name: { contains: search, mode: 'insensitive' } } },
-          { Lab: { name: { contains: search, mode: 'insensitive' } } },
-        ]
-      : undefined;
-
     const where = {
-      ...typeFilter,
       ...(status ? { status } : {}),
-      ...(searchOr ? { OR: searchOr } : {}),
     };
 
-    const includePascal = {
-      Doctor: { select: { id: true, name: true, specialty: true } },
-      Hospital: { select: { id: true, name: true, address: true } },
-      Lab: { select: { id: true, name: true, services: true } },
-      User: { select: { id: true, name: true, email: true } },
-    };
-    const includeCamel = {
-      doctor: { select: { id: true, name: true, specialty: true } },
-      hospital: { select: { id: true, name: true, address: true } },
-      lab: { select: { id: true, name: true, services: true } },
-      user: { select: { id: true, name: true, email: true } },
-    };
-
-    let appointments;
-    let total;
-
-    // Try includes in order of specificity. Failures usually mean the
-    // Prisma client / DB is on an older relation naming scheme.
-    const attempts = [
-      { where, include: includePascal },
-      {
-        where: {
-          ...(status ? { status } : {}),
-          ...(search
-            ? {
-                OR: [
-                  { patientName: { contains: search, mode: 'insensitive' } },
-                  { paymentReference: { contains: search, mode: 'insensitive' } },
-                  { Doctor: { name: { contains: search, mode: 'insensitive' } } },
-                ],
-              }
-            : {}),
-        },
-        include: {
-          Doctor: { select: { id: true, name: true, specialty: true } },
-          User: { select: { id: true, name: true, email: true } },
-        },
-      },
-      {
-        where: {
-          ...(status ? { status } : {}),
-          ...(search
-            ? {
-                OR: [
-                  { patientName: { contains: search, mode: 'insensitive' } },
-                  { paymentReference: { contains: search, mode: 'insensitive' } },
-                  { doctor: { name: { contains: search, mode: 'insensitive' } } },
-                ],
-              }
-            : {}),
-        },
-        include: includeCamel,
-      },
-      {
-        where: {
-          ...(status ? { status } : {}),
-          ...(search
-            ? {
-                OR: [
-                  { patientName: { contains: search, mode: 'insensitive' } },
-                  { paymentReference: { contains: search, mode: 'insensitive' } },
-                ],
-              }
-            : {}),
-        },
-        include: {
-          doctor: { select: { id: true, name: true } },
-          user: { select: { id: true, name: true, email: true } },
-        },
-      },
-      // Last resort: no relation includes (still lists the rows)
-      {
-        where: {
-          ...(status ? { status } : {}),
-          ...(search
-            ? {
-                OR: [
-                  { patientName: { contains: search, mode: 'insensitive' } },
-                  { paymentReference: { contains: search, mode: 'insensitive' } },
-                ],
-              }
-            : {}),
-        },
-        include: undefined,
-      },
-    ];
-
-    let lastErr;
-    for (const attempt of attempts) {
-      try {
-        const findArgs = {
-          where: attempt.where,
-          orderBy: { date: 'desc' },
-          skip,
-          take,
-        };
-        if (attempt.include) findArgs.include = attempt.include;
-        [appointments, total] = await Promise.all([
-          prisma.appointment.findMany(findArgs),
-          prisma.appointment.count({ where: attempt.where }),
-        ]);
-        lastErr = null;
-        break;
-      } catch (e) {
-        lastErr = e;
-        console.warn('listAppointments attempt failed:', e.message);
-      }
+    if (type && String(type).toUpperCase() !== 'ALL') {
+      where.type = String(type).toUpperCase();
     }
-    if (lastErr) throw lastErr;
 
-    // Normalize relation keys so the admin UI can always read .doctor / .user etc.
-    const normalized = appointments.map((a) => {
-      const doctor = a.Doctor || a.doctor || null;
-      const hospital = a.Hospital || a.hospital || null;
-      const lab = a.Lab || a.lab || null;
-      const user = a.User || a.user || null;
-      const {
-        Doctor: _D,
-        Hospital: _H,
-        Lab: _L,
-        User: _U,
-        doctor: _d,
-        hospital: _h,
-        lab: _l,
-        user: _u,
-        ...rest
-      } = a;
-      return {
-        ...rest,
-        type: rest.type || (hospital ? 'HOSPITAL' : lab ? 'LAB' : 'DOCTOR'),
-        doctor,
-        hospital,
-        lab,
-        user,
-      };
+    if (search) {
+      where.OR = [
+        { patientName: { contains: search, mode: 'insensitive' } },
+        { paymentReference: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const { appointments, total } = await findAppointmentsResilient(prisma, {
+      where,
+      skip,
+      take,
     });
 
-    res.json({ appointments: normalized, total, page: Number(page), pageSize: take });
+    // Optional client-side type filter if DB lacked type column
+    let list = appointments;
+    if (type && String(type).toUpperCase() !== 'ALL') {
+      const t = String(type).toUpperCase();
+      list = list.filter((a) => {
+        const at = (a.type || 'DOCTOR').toUpperCase();
+        if (t === 'DOCTOR') return at === 'DOCTOR' || (!a.hospitalId && !a.labId && !a.hospital && !a.lab);
+        if (t === 'HOSPITAL') return at === 'HOSPITAL' || a.hospitalId != null || a.hospital;
+        if (t === 'LAB') return at === 'LAB' || a.labId != null || a.lab;
+        return true;
+      });
+    }
+
+    res.json({
+      appointments: list,
+      total: type && String(type).toUpperCase() !== 'ALL' ? list.length : total,
+      page: Number(page),
+      pageSize: take,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch appointments' });
+    res.status(500).json({ error: 'Failed to fetch appointments', detail: err.message });
   }
 };
 
