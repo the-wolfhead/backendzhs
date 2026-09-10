@@ -1,11 +1,7 @@
 // src/routes/admin.dashboard.routes.js
-//
-// Routes for the admin dashboard (separate concern from the existing
-// src/routes/admin.routes.js, which only handled Paystack-wallet
-// reconciliation logs).
 import express from 'express';
 import { authenticateToken } from '../middleware/authMiddleware.js';
-import { requireRole, ANY_STAFF } from '../middleware/roleMiddleware.js';
+import { requirePermission, requireRole, ANY_STAFF } from '../middleware/roleMiddleware.js';
 import {
   getStats,
   listUsers,
@@ -38,52 +34,93 @@ import {
   retryTransactionAdmin,
   listReconciliationAdmin,
   listAccountsAdmin,
+  createFacilityStaff,
+  provisionHospitalLogin,
+  provisionLabLogin,
+  getMyPermissions,
 } from '../controllers/admin.controller.js';
 
 const router = express.Router();
 
-// Every route here requires SOME staff role, on top of the more specific
-// checks per-route below.
+// All dashboard routes require a staff role (not patient/doctor/facility).
 router.use(authenticateToken, requireRole(...ANY_STAFF));
 
-router.get('/stats', getStats);
+// ── Overview ───────────────────────────────────────────────────────────────
+router.get('/stats', requirePermission('admin.stats.read'), getStats);
+router.get('/me/permissions', getMyPermissions);
 
-router.get('/users', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listUsers);
-router.get('/users/:id', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), getUserDetail);
-router.patch('/users/:id/role', requireRole('SUPER_ADMIN'), updateUserRole);
+// ── Users ──────────────────────────────────────────────────────────────────
+router.get('/users', requirePermission('admin.users.read'), listUsers);
+router.get('/users/:id', requirePermission('admin.users.read'), getUserDetail);
+router.patch('/users/:id/role', requirePermission('admin.users.role.write'), updateUserRole);
+router.post('/facility-staff', requirePermission('admin.facility_staff.create'), createFacilityStaff);
 
-router.get('/appointments', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listAppointments);
-router.patch('/appointments/:id', requireRole('SUPER_ADMIN', 'CUSTOMER_CARE'), updateAppointment);
-router.delete('/appointments/:id', requireRole('SUPER_ADMIN'), deleteAppointment);
-router.post('/appointments/:id/regenerate-video-call', requireRole('SUPER_ADMIN', 'TECH_SUPPORT'), regenerateVideoCallLink);
+// ── Appointments ───────────────────────────────────────────────────────────
+router.get('/appointments', requirePermission('admin.appointments.read'), listAppointments);
+router.patch('/appointments/:id', requirePermission('admin.appointments.write'), updateAppointment);
+router.delete('/appointments/:id', requirePermission('admin.appointments.delete'), deleteAppointment);
+router.post(
+  '/appointments/:id/regenerate-video-call',
+  requirePermission('admin.appointments.video_regen'),
+  regenerateVideoCallLink
+);
 
-router.get('/doctors', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listDoctorsAdmin);
-router.post('/doctors', requireRole('SUPER_ADMIN'), createDoctor);
-router.patch('/doctors/:id', requireRole('SUPER_ADMIN'), updateDoctor);
-router.delete('/doctors/:id', requireRole('SUPER_ADMIN'), deleteDoctor);
-router.post('/doctors/:id/credentials', requireRole('SUPER_ADMIN'), provisionDoctorCredentials);
+// ── Doctors ────────────────────────────────────────────────────────────────
+router.get('/doctors', requirePermission('admin.doctors.read'), listDoctorsAdmin);
+router.post('/doctors', requirePermission('admin.doctors.write'), createDoctor);
+router.patch('/doctors/:id', requirePermission('admin.doctors.write'), updateDoctor);
+router.delete('/doctors/:id', requirePermission('admin.doctors.write'), deleteDoctor);
+router.post(
+  '/doctors/:id/credentials',
+  requirePermission('admin.doctors.credentials'),
+  provisionDoctorCredentials
+);
 
-router.get('/hospitals', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listHospitalsAdmin);
-router.post('/hospitals', requireRole('SUPER_ADMIN'), createHospital);
-router.patch('/hospitals/:id', requireRole('SUPER_ADMIN'), updateHospital);
-router.delete('/hospitals/:id', requireRole('SUPER_ADMIN'), deleteHospital);
+// ── Facilities ─────────────────────────────────────────────────────────────
+router.get('/hospitals', requirePermission('admin.facilities.read'), listHospitalsAdmin);
+router.post('/hospitals', requirePermission('admin.facilities.write'), createHospital);
+router.patch('/hospitals/:id', requirePermission('admin.facilities.write'), updateHospital);
+router.delete('/hospitals/:id', requirePermission('admin.facilities.write'), deleteHospital);
+router.post(
+  '/hospitals/:id/credentials',
+  requirePermission('admin.facility_staff.create'),
+  provisionHospitalLogin
+);
 
-router.get('/labs', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listLabsAdmin);
-router.post('/labs', requireRole('SUPER_ADMIN'), createLab);
-router.patch('/labs/:id', requireRole('SUPER_ADMIN'), updateLab);
-router.delete('/labs/:id', requireRole('SUPER_ADMIN'), deleteLab);
+router.get('/labs', requirePermission('admin.facilities.read'), listLabsAdmin);
+router.post('/labs', requirePermission('admin.facilities.write'), createLab);
+router.patch('/labs/:id', requirePermission('admin.facilities.write'), updateLab);
+router.delete('/labs/:id', requirePermission('admin.facilities.write'), deleteLab);
+router.post(
+  '/labs/:id/credentials',
+  requirePermission('admin.facility_staff.create'),
+  provisionLabLogin
+);
 
-router.get('/pharmacies', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'AUDITOR'), listPharmaciesAdmin);
-router.post('/pharmacies', requireRole('SUPER_ADMIN'), createPharmacy);
-router.patch('/pharmacies/:id', requireRole('SUPER_ADMIN'), updatePharmacy);
-router.delete('/pharmacies/:id', requireRole('SUPER_ADMIN'), deletePharmacy);
+router.get('/pharmacies', requirePermission('admin.facilities.read'), listPharmaciesAdmin);
+router.post('/pharmacies', requirePermission('admin.facilities.write'), createPharmacy);
+router.patch('/pharmacies/:id', requirePermission('admin.facilities.write'), updatePharmacy);
+router.delete('/pharmacies/:id', requirePermission('admin.facilities.write'), deletePharmacy);
 
-router.get('/transactions', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'), listTransactionsAdmin);
-router.get('/transactions/:reference', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'), getTransactionAdmin);
-router.post('/transactions/:reference/mark-failed', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'FINANCE'), markTransactionFailed);
-router.post('/transactions/:reference/retry', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'FINANCE'), retryTransactionAdmin);
+// ── Finance ────────────────────────────────────────────────────────────────
+router.get('/transactions', requirePermission('admin.transactions.read'), listTransactionsAdmin);
+router.get(
+  '/transactions/:reference',
+  requirePermission('admin.transactions.read'),
+  getTransactionAdmin
+);
+router.post(
+  '/transactions/:reference/mark-failed',
+  requirePermission('admin.transactions.retry'),
+  markTransactionFailed
+);
+router.post(
+  '/transactions/:reference/retry',
+  requirePermission('admin.transactions.retry'),
+  retryTransactionAdmin
+);
 
-router.get('/reconciliation', requireRole('SUPER_ADMIN', 'TECH_SUPPORT', 'FINANCE', 'AUDITOR'), listReconciliationAdmin);
-router.get('/accounts', requireRole('SUPER_ADMIN', 'FINANCE', 'AUDITOR'), listAccountsAdmin);
+router.get('/reconciliation', requirePermission('admin.reconciliation.read'), listReconciliationAdmin);
+router.get('/accounts', requirePermission('admin.accounts.read'), listAccountsAdmin);
 
 export default router;

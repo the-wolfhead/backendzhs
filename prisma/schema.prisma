@@ -78,6 +78,9 @@ model Hospital {
   fee            Int           @default(5000)
   availableHours Json?
   workDays       String[]      @default([])
+  // Desk login for this hospital (role HOSPITAL)
+  staffUserId    String?       @unique
+  StaffUser      User?         @relation("HospitalStaff", fields: [staffUserId], references: [id])
   Appointment    Appointment[]
 }
 
@@ -92,6 +95,9 @@ model Lab {
   fee            Int           @default(8000)
   availableHours Json?
   workDays       String[]      @default([])
+  // Desk login for this lab (role LAB)
+  staffUserId    String?       @unique
+  StaffUser      User?         @relation("LabStaff", fields: [staffUserId], references: [id])
   Appointment    Appointment[]
 }
 
@@ -139,14 +145,16 @@ model User {
   smoker         Boolean?         @default(false)
   balance        Float?           @default(0)
   role           String           @default("USER")
-  Appointment    Appointment[]
-  Doctor         Doctor?
-  FavoriteDoctor FavoriteDoctor[]
-  Transaction    Transaction[]
-  Wallet         Wallet?
-  accounts       Account[]
-  escrowsBought  Escrow[]         @relation("EscrowBuyer")
-  escrowsSold    Escrow[]         @relation("EscrowSeller")
+  Appointment      Appointment[]
+  Doctor           Doctor?
+  FavoriteDoctor   FavoriteDoctor[]
+  Transaction      Transaction[]
+  Wallet           Wallet?
+  accounts         Account[]
+  escrowsBought    Escrow[]         @relation("EscrowBuyer")
+  escrowsSold      Escrow[]         @relation("EscrowSeller")
+  StaffHospital    Hospital?        @relation("HospitalStaff")
+  StaffLab         Lab?             @relation("LabStaff")
   dependents     Dependent[]
 }
 

@@ -1,3 +1,4 @@
+import { assertFacilityTypeAllowed } from '../middleware/requireFacilityAccess.js';
 // src/controllers/doctorPortal.controller.js
 import prisma from '../prismaClient.js';
 
@@ -153,18 +154,45 @@ export const updateMyAppointmentStatus = async (req, res) => {
 ================================== */
 export const getFacilityAppointments = async (req, res) => {
   try {
-    const { type = 'LAB', status, page = 1, pageSize = 20 } = req.query;
+    const { type, status, page = 1, pageSize = 20 } = req.query;
     const take = Math.min(Number(pageSize) || 20, 100);
     const skip = (Number(page) - 1) * take;
-    const t = String(type).toUpperCase();
-    if (!['HOSPITAL', 'LAB'].includes(t)) {
-      return res.status(400).json({ error: 'type must be HOSPITAL or LAB' });
+
+    // Default type from role when not specified
+    let t = type ? String(type).toUpperCase() : null;
+    if (!t) {
+      if (req.user.role === 'HOSPITAL') t = 'HOSPITAL';
+      else if (req.user.role === 'LAB') t = 'LAB';
+      else t = 'LAB';
     }
+
+    const denied = assertFacilityTypeAllowed(req.user.role, t);
+    if (denied) return res.status(403).json({ error: denied });
 
     const where = {
       type: t,
       ...(status ? { status } : {}),
     };
+
+    // Scope HOSPITAL / LAB staff to their linked facility when set
+    if (req.user.role === 'HOSPITAL') {
+      try {
+        const linked = await prisma.hospital.findFirst({
+          where: { staffUserId: req.user.id },
+          select: { id: true },
+        });
+        if (linked) where.hospitalId = linked.id;
+      } catch (_) {}
+    }
+    if (req.user.role === 'LAB') {
+      try {
+        const linked = await prisma.lab.findFirst({
+          where: { staffUserId: req.user.id },
+          select: { id: true },
+        });
+        if (linked) where.labId = linked.id;
+      } catch (_) {}
+    }
 
     const includePascal = {
       Hospital: { select: { id: true, name: true, address: true } },
@@ -230,6 +258,9 @@ export const updateFacilityAppointment = async (req, res) => {
     if (!['HOSPITAL', 'LAB'].includes(t)) {
       return res.status(400).json({ error: 'Not a hospital or lab appointment' });
     }
+
+    const denied = assertFacilityTypeAllowed(req.user.role, t);
+    if (denied) return res.status(403).json({ error: denied });
 
     const data = {};
     if (status) {

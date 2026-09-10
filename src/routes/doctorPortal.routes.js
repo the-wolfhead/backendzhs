@@ -1,7 +1,8 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/authMiddleware.js';
-import { requireRole } from '../middleware/roleMiddleware.js';
+import { requirePermission, requireRole } from '../middleware/roleMiddleware.js';
 import { requireDoctorProfile } from '../middleware/requireDoctorProfile.js';
+import { requireFacilityAccess } from '../middleware/requireFacilityAccess.js';
 import {
   getMyProfile,
   updateMyProfile,
@@ -15,16 +16,22 @@ import {
 
 const router = express.Router();
 
-router.use(authenticateToken, requireRole('DOCTOR'), requireDoctorProfile);
+const doctorOnly = [
+  authenticateToken,
+  requirePermission('doctor.profile'),
+  requireDoctorProfile,
+];
 
-router.get('/profile', getMyProfile);
-router.patch('/profile', updateMyProfile);
-router.patch('/online', setOnlineStatus);
-router.get('/appointments', getMyAppointments);
-router.patch('/appointments/:id', updateMyAppointmentStatus);
-router.post('/appointments/:id/results', uploadMyAppointmentResult);
+router.get('/profile', ...doctorOnly, getMyProfile);
+router.patch('/profile', ...doctorOnly, updateMyProfile);
+router.patch('/online', ...doctorOnly, setOnlineStatus);
+router.get('/appointments', ...doctorOnly, getMyAppointments);
+router.patch('/appointments/:id', ...doctorOnly, updateMyAppointmentStatus);
+router.post('/appointments/:id/results', ...doctorOnly, uploadMyAppointmentResult);
 
-router.get('/facility-appointments', getFacilityAppointments);
-router.patch('/facility-appointments/:id', updateFacilityAppointment);
+const facilityAccess = [authenticateToken, requireFacilityAccess];
+
+router.get('/facility-appointments', ...facilityAccess, getFacilityAppointments);
+router.patch('/facility-appointments/:id', ...facilityAccess, updateFacilityAppointment);
 
 export default router;

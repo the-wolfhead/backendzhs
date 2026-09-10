@@ -51,6 +51,7 @@ export const listUsers = async (req, res) => {
     // group: patients | doctors | staff | all
     // role: exact role filter (USER, DOCTOR, SUPER_ADMIN, ...)
     const STAFF_ROLES = ['SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'];
+    const FACILITY_ROLES = ['HOSPITAL', 'LAB'];
     let roleFilter = {};
     if (role) {
       roleFilter = { role: String(role).toUpperCase() };
@@ -58,6 +59,8 @@ export const listUsers = async (req, res) => {
       roleFilter = { role: 'USER' };
     } else if (group === 'doctors') {
       roleFilter = { role: 'DOCTOR' };
+    } else if (group === 'facility') {
+      roleFilter = { role: { in: FACILITY_ROLES } };
     } else if (group === 'staff') {
       roleFilter = { role: { in: STAFF_ROLES } };
     }
@@ -92,7 +95,8 @@ export const listUsers = async (req, res) => {
         prisma.user.count({ where: { role: 'USER' } }),
         prisma.user.count({ where: { role: 'DOCTOR' } }),
         prisma.user.count({ where: { role: { in: STAFF_ROLES } } }),
-      ]).catch(() => [0, 0, 0]),
+        prisma.user.count({ where: { role: { in: FACILITY_ROLES } } }),
+      ]).catch(() => [0, 0, 0, 0]),
     ]);
 
     // Normalize Doctor relation
@@ -105,9 +109,13 @@ export const listUsers = async (req, res) => {
         accountType:
           rest.role === 'DOCTOR'
             ? 'Doctor'
-            : STAFF_ROLES.includes(rest.role)
-              ? 'Staff'
-              : 'Patient',
+            : rest.role === 'HOSPITAL'
+              ? 'Hospital'
+              : rest.role === 'LAB'
+                ? 'Lab'
+                : STAFF_ROLES.includes(rest.role)
+                  ? 'Staff'
+                  : 'Patient',
       };
     });
 
@@ -120,6 +128,7 @@ export const listUsers = async (req, res) => {
         patients: counts[0] || 0,
         doctors: counts[1] || 0,
         staff: counts[2] || 0,
+        facility: counts[3] || 0,
       },
     });
   } catch (err) {
@@ -162,7 +171,15 @@ export const listUsers = async (req, res) => {
         users: users.map((u) => ({
           ...u,
           accountType:
-            u.role === 'DOCTOR' ? 'Doctor' : STAFF_ROLES.includes(u.role) ? 'Staff' : 'Patient',
+            u.role === 'DOCTOR'
+              ? 'Doctor'
+              : u.role === 'HOSPITAL'
+                ? 'Hospital'
+                : u.role === 'LAB'
+                  ? 'Lab'
+                  : STAFF_ROLES.includes(u.role)
+                    ? 'Staff'
+                    : 'Patient',
         })),
         total,
         page: Number(page),
@@ -212,7 +229,7 @@ export const getUserDetail = async (req, res) => {
 export const updateUserRole = async (req, res) => {
   try {
     const { role } = req.body;
-    const validRoles = ['USER', 'DOCTOR', 'SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'];
+    const validRoles = ['USER', 'DOCTOR', 'HOSPITAL', 'LAB', 'SUPER_ADMIN', 'TECH_SUPPORT', 'CUSTOMER_CARE', 'FINANCE', 'AUDITOR'];
 
     if (!validRoles.includes(role)) {
       return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
@@ -749,7 +766,17 @@ export const provisionDoctorCredentials = async (req, res) => {
 ================================== */
 export const listHospitalsAdmin = async (req, res) => {
   try {
-    const items = await prisma.hospital.findMany({ orderBy: { name: 'asc' } });
+    let items;
+    try {
+      items = await prisma.hospital.findMany({
+        orderBy: { name: 'asc' },
+        include: {
+          StaffUser: { select: { id: true, name: true, email: true, role: true } },
+        },
+      });
+    } catch {
+      items = await prisma.hospital.findMany({ orderBy: { name: 'asc' } });
+    }
     res.json(items);
   } catch (err) {
     console.error(err);
@@ -844,7 +871,17 @@ export const deleteHospital = async (req, res) => {
 
 export const listLabsAdmin = async (req, res) => {
   try {
-    const items = await prisma.lab.findMany({ orderBy: { name: 'asc' } });
+    let items;
+    try {
+      items = await prisma.lab.findMany({
+        orderBy: { name: 'asc' },
+        include: {
+          StaffUser: { select: { id: true, name: true, email: true, role: true } },
+        },
+      });
+    } catch {
+      items = await prisma.lab.findMany({ orderBy: { name: 'asc' } });
+    }
     res.json(items);
   } catch (err) {
     console.error(err);
@@ -1306,5 +1343,307 @@ export const listAccountsAdmin = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch accounts' });
+  }
+};
+
+
+/**
+ * Create a HOSPITAL or LAB staff login (no Doctor profile required).
+ * Optional hospitalId / labId links the account to that facility.
+ * Returns one-time temp password.
+ */
+export const createFacilityStaff = async (req, res) => {
+  try {
+    const { name, email, role, hospitalId, labId } = req.body;
+    const r = String(role || '').toUpperCase();
+    if (!name || !email) {
+      return res.status(400).json({ error: 'name and email are required' });
+    }
+    if (!['HOSPITAL', 'LAB'].includes(r)) {
+      return res.status(400).json({ error: 'role must be HOSPITAL or LAB' });
+    }
+    if (r === 'HOSPITAL' && labId) {
+      return res.status(400).json({ error: 'labId is not valid for HOSPITAL role' });
+    }
+    if (r === 'LAB' && hospitalId) {
+      return res.status(400).json({ error: 'hospitalId is not valid for LAB role' });
+    }
+
+    const loginEmail = email.trim().toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email: loginEmail } });
+    if (existing) {
+      return res.status(409).json({ error: 'A user with this email already exists' });
+    }
+
+    let facility = null;
+    if (hospitalId) {
+      facility = await prisma.hospital.findUnique({ where: { id: Number(hospitalId) } });
+      if (!facility) return res.status(404).json({ error: 'Hospital not found' });
+      if (facility.staffUserId) {
+        return res.status(409).json({
+          error: 'This hospital already has a staff login. Reset credentials instead.',
+        });
+      }
+    }
+    if (labId) {
+      facility = await prisma.lab.findUnique({ where: { id: Number(labId) } });
+      if (!facility) return res.status(404).json({ error: 'Lab not found' });
+      if (facility.staffUserId) {
+        return res.status(409).json({
+          error: 'This lab already has a staff login. Reset credentials instead.',
+        });
+      }
+    }
+
+    const tempPassword = crypto.randomBytes(6).toString('base64url');
+    const hashed = await hashPassword(tempPassword);
+
+    const result = await prisma.$transaction(async (db) => {
+      const user = await db.user.create({
+        data: {
+          name: name.trim(),
+          email: loginEmail,
+          password: hashed,
+          role: r,
+        },
+      });
+
+      if (hospitalId) {
+        await db.hospital.update({
+          where: { id: Number(hospitalId) },
+          data: { staffUserId: user.id },
+        });
+      }
+      if (labId) {
+        await db.lab.update({
+          where: { id: Number(labId) },
+          data: { staffUserId: user.id },
+        });
+      }
+
+      return user;
+    });
+
+    res.status(201).json({
+      id: result.id,
+      name: result.name,
+      email: result.email,
+      role: result.role,
+      loginEmail: result.email,
+      tempPassword,
+      hospitalId: hospitalId ? Number(hospitalId) : null,
+      labId: labId ? Number(labId) : null,
+      facilityName: facility?.name || null,
+      message:
+        'Facility staff account created. Share the password once — it cannot be retrieved later.',
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create facility staff account' });
+  }
+};
+
+/**
+ * Reset / create login for a specific hospital (by id).
+ * Body: { name?, email } — email required if no staff linked yet.
+ */
+export const provisionHospitalLogin = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const hospital = await prisma.hospital.findUnique({
+      where: { id },
+      include: { StaffUser: { select: { id: true, email: true, name: true, role: true } } },
+    }).catch(async () => {
+      return prisma.hospital.findUnique({ where: { id } });
+    });
+
+    if (!hospital) return res.status(404).json({ error: 'Hospital not found' });
+
+    const tempPassword = crypto.randomBytes(6).toString('base64url');
+    const hashed = await hashPassword(tempPassword);
+
+    // Existing linked user → reset password
+    if (hospital.staffUserId) {
+      const user = await prisma.user.update({
+        where: { id: hospital.staffUserId },
+        data: { password: hashed, role: 'HOSPITAL' },
+      });
+      return res.json({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: 'HOSPITAL',
+        loginEmail: user.email,
+        tempPassword,
+        hospitalId: id,
+        facilityName: hospital.name,
+        message: 'Password reset. Share once — not retrievable later.',
+      });
+    }
+
+    const { name, email } = req.body;
+    const loginEmail = (email || hospital.email || '').trim().toLowerCase();
+    if (!loginEmail) {
+      return res.status(400).json({
+        error: 'email is required (hospital has no email on file)',
+      });
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email: loginEmail } });
+    if (existing) {
+      // Link existing user if not already a different facility staff
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { password: hashed, role: 'HOSPITAL', name: name?.trim() || existing.name },
+      });
+      await prisma.hospital.update({
+        where: { id },
+        data: { staffUserId: existing.id },
+      });
+      return res.json({
+        id: existing.id,
+        name: name?.trim() || existing.name,
+        email: existing.email,
+        role: 'HOSPITAL',
+        loginEmail: existing.email,
+        tempPassword,
+        hospitalId: id,
+        facilityName: hospital.name,
+        message: 'Existing user linked and password set. Share once.',
+      });
+    }
+
+    const user = await prisma.user.create({
+      data: {
+        name: (name || hospital.name).trim(),
+        email: loginEmail,
+        password: hashed,
+        role: 'HOSPITAL',
+      },
+    });
+    await prisma.hospital.update({
+      where: { id },
+      data: { staffUserId: user.id },
+    });
+
+    res.status(201).json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: 'HOSPITAL',
+      loginEmail: user.email,
+      tempPassword,
+      hospitalId: id,
+      facilityName: hospital.name,
+      message: 'Hospital login created. Share the password once.',
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to provision hospital login' });
+  }
+};
+
+export const provisionLabLogin = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const lab = await prisma.lab.findUnique({ where: { id } });
+    if (!lab) return res.status(404).json({ error: 'Lab not found' });
+
+    const tempPassword = crypto.randomBytes(6).toString('base64url');
+    const hashed = await hashPassword(tempPassword);
+
+    if (lab.staffUserId) {
+      const user = await prisma.user.update({
+        where: { id: lab.staffUserId },
+        data: { password: hashed, role: 'LAB' },
+      });
+      return res.json({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: 'LAB',
+        loginEmail: user.email,
+        tempPassword,
+        labId: id,
+        facilityName: lab.name,
+        message: 'Password reset. Share once — not retrievable later.',
+      });
+    }
+
+    const { name, email } = req.body;
+    const loginEmail = (email || lab.email || '').trim().toLowerCase();
+    if (!loginEmail) {
+      return res.status(400).json({
+        error: 'email is required (lab has no email on file)',
+      });
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email: loginEmail } });
+    if (existing) {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { password: hashed, role: 'LAB', name: name?.trim() || existing.name },
+      });
+      await prisma.lab.update({
+        where: { id },
+        data: { staffUserId: existing.id },
+      });
+      return res.json({
+        id: existing.id,
+        name: name?.trim() || existing.name,
+        email: existing.email,
+        role: 'LAB',
+        loginEmail: existing.email,
+        tempPassword,
+        labId: id,
+        facilityName: lab.name,
+        message: 'Existing user linked and password set. Share once.',
+      });
+    }
+
+    const user = await prisma.user.create({
+      data: {
+        name: (name || lab.name).trim(),
+        email: loginEmail,
+        password: hashed,
+        role: 'LAB',
+      },
+    });
+    await prisma.lab.update({
+      where: { id },
+      data: { staffUserId: user.id },
+    });
+
+    res.status(201).json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: 'LAB',
+      loginEmail: user.email,
+      tempPassword,
+      labId: id,
+      facilityName: lab.name,
+      message: 'Lab login created. Share the password once.',
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to provision lab login' });
+  }
+};
+
+
+export const getMyPermissions = async (req, res) => {
+  try {
+    const { PERMISSIONS, roleHasPermission } = await import('../config/permissions.js');
+    const role = req.user.role;
+    const granted = Object.keys(PERMISSIONS).filter((key) => roleHasPermission(role, key));
+    res.json({
+      role,
+      permissions: granted,
+      user: { id: req.user.id, name: req.user.name, email: req.user.email },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to resolve permissions' });
   }
 };
